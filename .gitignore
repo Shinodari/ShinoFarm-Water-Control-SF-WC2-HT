@@ -1,0 +1,3 @@
+# ignore backup file of proteus
+Design/Solution/*.pdsbak
+Design/Solution/*.workspace
