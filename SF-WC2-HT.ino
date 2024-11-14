@@ -3,6 +3,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <DS3231.h>
 #include <EEPROM-Storage.h>
+#include <ArtronShop_SHT45.h>
 
 ///////////////////////////////////////////////////////////////////////////////////
 //-----------------------------------LCD Module----------------------------------//
@@ -69,6 +70,11 @@ DS3231 RTC;
 bool century = false;
 bool h12hflag = false;
 bool pmflag = false;
+
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------------SHT45 Module--------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+ArtronShop_SHT45 sht45(&Wire, 0x44);
 
 ///////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------Button------------------------------------//
@@ -200,6 +206,22 @@ int dispSTResetIndex = 0;       //DISPLAY_RS_SETTING
 
 //Blink
 enum DISPLAY_BLINK dispBlinkSelect = HOUR;
+
+//*********** Declear variables for Measurement of Main Display ***********//
+enum DISPLAY_MEASUREMENT{
+    TEMP_IN,
+    TEMP_OUT,
+    RH
+};
+uint8_t dispMeasurementIndex = TEMP_IN;
+float measurementMainDispTemp;
+float measerementMainDispRH;
+
+//******** Action variables ********//
+uint32_t measurementMainDisplayAct;
+
+//-------- Adjust for Switch measurement display  ---------//
+uint8_t measurementMainDisplayTime = 10;  //Sec
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -415,6 +437,13 @@ void setup() {
     delay(welcomeDelay);
     LCD.clear();
 
+    //--SHT45--//
+    while (!sht45.begin()){
+        LCD.clear();
+        LCD.print("SHT45 not found!");
+        delay(1000);
+    }
+
     //--Button--//
     for(int pin : buttons){
         pinMode(pin, INPUT_PULLUP);
@@ -440,6 +469,9 @@ void setup() {
 
     //--Menu TimeOut--//
     setMenuTimeOutAct();
+
+    //--Measurement of Main Display--//
+    setMeasurementMainDisplayAct();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -507,6 +539,16 @@ void loop() {
         manualTimeoutState = false;
         solenoid_state = false;
         digitalWrite(SOLENOID_PIN, solenoid_state);
+    }
+
+    //--Measurement of Main Display--//
+    if (millis() >= measurementMainDisplayAct){
+        if (dispMeasurementIndex < RH)
+            dispMeasurementIndex++;
+        else
+            dispMeasurementIndex = 0;
+        setMeasurementMainDisplayAct();
+        LCD.clear();
     }
 }
 
@@ -1148,12 +1190,32 @@ void dispNormal(){
     //Display Time
     printAdjustHourMinute(RTC.getHour(h12hflag,pmflag), RTC.getMinute(), false);
 
-    //Display Temp in RTC Module
-    LCD.setCursor(2, 1);
-    LCD.print("Temp: ");
-    LCD.print(RTC.getTemperature());
-    LCD.print(char(0));
-    LCD.print("C");
+    //Display Measurement in Main Display
+    switch (dispMeasurementIndex){
+        case TEMP_IN:   //Display Temp in RTC Module
+            LCD.setCursor(0, 1);
+            LCD.print("Board:");
+            printSpace(2);
+            LCD.print(RTC.getTemperature());
+            LCD.print(char(0));
+            LCD.print("C");
+            break;
+        case TEMP_OUT:
+            LCD.setCursor(1, 1);
+            LCD.print("Temp:");
+            printSpace(2);
+            LCD.print(measurementMainDispTemp);
+            LCD.print(char(0));
+            LCD.print("C");
+            break;
+        case RH:
+            LCD.setCursor(3, 1);
+            LCD.print("RH:");
+            printSpace(3);
+            LCD.print(measerementMainDispRH);
+            LCD.print("%");
+            break;
+    }
 }
 
 void dispAdjustWTMain(){
@@ -1799,6 +1861,18 @@ void setMenuTimeOutAct(){
 
 void setManualTimeoutAct(){
     manualTimeOutAct = millis() + (manualTimeout * 1000L * 60L);
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------Measurement in Main Display FUNCTION---------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+void setMeasurementMainDisplayAct(){
+    measurementMainDisplayAct = millis() + (measurementMainDisplayTime * 1000);
+    if (sht45.measure()){
+        measurementMainDispTemp = sht45.temperature();
+        measerementMainDispRH = sht45.humidity();
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
