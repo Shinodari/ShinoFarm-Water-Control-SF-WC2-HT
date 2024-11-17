@@ -192,6 +192,7 @@ enum DISPLAY_BLINK{
 //*********** Define Display State ***********//
 //Main
 enum DISPLAY_STATE dispStateCurrent = DS_MAIN;
+
 //AdjustWaterTime
 enum DISPLAY_ADJUST_WATER_TIME dispAdjustWTCurrent = WT_MAIN;
 enum DISPLAY_ADJ_WT_SETTING dispAdjWTSetingCurrent = WT_ST_MAIN;
@@ -207,21 +208,43 @@ int dispSTResetIndex = 0;       //DISPLAY_RS_SETTING
 //Blink
 enum DISPLAY_BLINK dispBlinkSelect = HOUR;
 
-//*********** Declear variables for Measurement of Main Display ***********//
-enum DISPLAY_MEASUREMENT{
+///////////// Declear variables for Main Display (Common) /////////////
+enum DISPLAY_MAIN{
+    MN_CONTROLLER,
+    MN_HT
+};
+uint8_t mainDisplayIndex = MN_CONTROLLER;      ////////////Sample----------------------------*****
+
+enum DISPLAY_MAIN_STATE{
+    MN_STT_CONTROLLER_ONLY,
+    MN_STT_HT_ONLY,
+    MN_STT_CONTROLLER_HT
+};
+uint8_t mainDisplayState = MN_STT_CONTROLLER_HT;
+
+//******** Action variables ********//
+uint32_t mainDisplayAct;
+
+float mainDisplayTemp;
+float mainDisplayRH;
+
+//-------- Adjust for Switch display  ---------//
+uint8_t mainDisplayTime = 5;    //Sec   ////////////Sample----------------
+
+
+///////////// Declear variables for Main Display (Classic) /////////////
+enum DISPLAY_CLASSIC_HT{
     TEMP_IN,
     TEMP_OUT,
     RH
 };
 uint8_t dispMeasurementIndex = TEMP_IN;
-float measurementMainDispTemp;
-float measerementMainDispRH;
 
 //******** Action variables ********//
-uint32_t measurementMainDisplayAct;
+uint32_t mainDisplayClassicAct;
 
-//-------- Adjust for Switch measurement display  ---------//
-uint8_t measurementMainDisplayTime = 10;  //Sec
+//-------- Adjust for Switch display  ---------//
+uint8_t mainDisplayClassicTime = 10;  //Sec
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -333,6 +356,14 @@ bool manualTimeoutState = false;
 
 //******** Action variables ********//
 uint32_t manualTimeOutAct;
+
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------Humidity and Temperature--------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//******** Declear variables for Record ********//
+uint8_t htAddresCurrent;
+uint8_t htPreriodTime = 15; //Minute
 
 ///////////////////////////////////////////////////////////////////////////////////
 //--------------------------------------EEPROM-----------------------------------//
@@ -470,8 +501,9 @@ void setup() {
     //--Menu TimeOut--//
     setMenuTimeOutAct();
 
-    //--Measurement of Main Display--//
-    setMeasurementMainDisplayAct();
+    //--Main Display--//
+    setMainDisplayAct();
+    setMainDisplayClassicAct();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -502,7 +534,7 @@ void loop() {
     switch (dispStateCurrent)
     {
     case DS_MAIN:
-        dispNormal();
+        dispMain();
         break;
     case DS_ADJUST_WT:
         switch (dispAdjustWTCurrent){
@@ -540,15 +572,29 @@ void loop() {
         solenoid_state = false;
         digitalWrite(SOLENOID_PIN, solenoid_state);
     }
-
-    //--Measurement of Main Display--//
-    if (millis() >= measurementMainDisplayAct){
-        if (dispMeasurementIndex < RH)
-            dispMeasurementIndex++;
-        else
-            dispMeasurementIndex = 0;
-        setMeasurementMainDisplayAct();
-        LCD.clear();
+    
+    //--Main Display--//
+    switch (mainDisplayState){
+        case MN_STT_CONTROLLER_HT:
+            if (millis() >= mainDisplayAct){
+                if (mainDisplayIndex < MN_HT)
+                    mainDisplayIndex++;
+                else
+                    mainDisplayIndex = 0;
+                setMainDisplayAct();
+                LCD.clear();
+            }
+            break;
+        case MN_STT_CONTROLLER_ONLY:
+            if (millis() >= mainDisplayClassicAct){
+                if (dispMeasurementIndex < RH)
+                    dispMeasurementIndex++;
+                else
+                    dispMeasurementIndex = 0;
+                setMainDisplayClassicAct();
+                LCD.clear();
+            }
+            break;
     }
 }
 
@@ -1181,9 +1227,32 @@ void adjustStTimeOrPeriodDown(uint8_t stepMinute, uint8_t stepSecond){
 ///////////////////////////////////////////////////////////////////////////////////
 //---------------------------------Display FUNCTION------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
-void dispNormal(){    
+void dispMain(){
     LCD.home();
 
+    switch (mainDisplayState){
+        case MN_STT_CONTROLLER_ONLY:
+            dispMainClassic();
+            break;
+        case MN_STT_HT_ONLY:
+            dispMainHT();
+            break;
+        case MN_STT_CONTROLLER_HT:
+            switch (mainDisplayIndex){
+                case MN_CONTROLLER:
+                    dispMainClassic();
+                    break;
+                case MN_HT:
+                    dispMainHT();
+                    break;
+            }
+            break;
+    }
+}
+
+void dispMainClassic(){
+    LCD.home();
+    
     //Display Date
     printDate(RTC.getDate(), RTC.getMonth(century), RTC.getYear() , false);
     printSpace(2);
@@ -1204,7 +1273,7 @@ void dispNormal(){
             LCD.setCursor(1, 1);
             LCD.print("Temp:");
             printSpace(2);
-            LCD.print(measurementMainDispTemp);
+            LCD.print(mainDisplayTemp);
             LCD.print(char(0));
             LCD.print("C");
             break;
@@ -1212,10 +1281,26 @@ void dispNormal(){
             LCD.setCursor(3, 1);
             LCD.print("RH:");
             printSpace(3);
-            LCD.print(measerementMainDispRH);
+            LCD.print(mainDisplayRH);
             LCD.print("%");
             break;
     }
+}
+
+void dispMainHT(){
+    LCD.print("Temp");
+    printSpace(5);
+    LCD.print(mainDisplayTemp);
+    LCD.print(char(0));
+    LCD.print("C");
+    
+    LCD.setCursor(0,1);
+
+    LCD.print("Humidity");
+    printSpace(1);
+    LCD.print(mainDisplayRH);
+    printSpace(1);
+    LCD.print("%");    
 }
 
 void dispAdjustWTMain(){
@@ -1864,15 +1949,33 @@ void setManualTimeoutAct(){
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
-//----------------------Measurement in Main Display FUNCTION---------------------//
+//--------------------------------SHT45 FUNCTION---------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
-void setMeasurementMainDisplayAct(){
-    measurementMainDisplayAct = millis() + (measurementMainDisplayTime * 1000);
+float getTemp(){
     if (sht45.measure()){
-        measurementMainDispTemp = sht45.temperature();
-        measerementMainDispRH = sht45.humidity();
+        return sht45.temperature();
     }
+}
+
+float getRH(){
+    if (sht45.measure()){
+        return sht45.humidity();
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------Main Display FUNCTION-----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+void setMainDisplayAct(){
+    mainDisplayAct = millis() + (mainDisplayTime * 1000L);
+    mainDisplayTemp = getTemp();
+    mainDisplayRH = getRH();
+}
+
+void setMainDisplayClassicAct(){
+    mainDisplayClassicAct = millis() + (mainDisplayClassicTime * 1000L);
+    mainDisplayTemp = getTemp();
+    mainDisplayRH = getRH();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
