@@ -243,8 +243,8 @@ uint8_t dispMeasurementIndex = TEMP_IN;
 //******** Action variables ********//
 uint32_t mainDisplayClassicAct;
 
-//-------- Adjust for Switch display  ---------//
-uint8_t mainDisplayClassicTime = 10;  //Sec
+//-------- Adjust for Update display  ---------//
+uint8_t mainDisplayClassicUpdateTime = 10;  //Sec
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -1973,7 +1973,7 @@ void setMainDisplayAct(){
 }
 
 void setMainDisplayClassicAct(){
-    mainDisplayClassicAct = millis() + (mainDisplayClassicTime * 1000L);
+    mainDisplayClassicAct = millis() + (mainDisplayClassicUpdateTime * 1000L);
     mainDisplayTemp = getTemp();
     mainDisplayRH = getRH();
 }
