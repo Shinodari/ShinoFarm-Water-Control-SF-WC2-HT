@@ -630,16 +630,6 @@ void loop() {
             break;
     }
 
-    //--External EEPROM--//
-    //Check Error
-    while (int err = dlEEPROM.getLastError() != 0){
-        LCD.clear();
-        LCD.print("External EEPROM!");
-        LCD.setCursor(0, 1);
-        LCD.print("Error reading");
-        delay(1000);
-    }
-
     //----DataLog--//
     if (RTC.getMinute() % htPeriodTime == 0){
         dlPointer++;
