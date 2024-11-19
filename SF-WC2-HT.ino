@@ -375,7 +375,7 @@ uint32_t htDateTime;
 float htTemp;
 float htRH;
 
-uint8_t htPeriodTime = 15;      //Minute
+uint8_t htPeriodTime = 2;      //Minute
 
 ///////////////////////////////////////////////////////////////////////////////////
 //----------------------------------Internal EEPROM------------------------------//
@@ -423,7 +423,7 @@ uint8_t htPeriodTime = 15;      //Minute
 #define P15_ADR P14_ADR + 2 + 1
 #define P16_ADR P15_ADR + 2 + 1
 
-//********** Define EEPROM Adress for DataLog ************//
+//********** Define EEPROM Adress for Pointer of DataLog ************//
 #define DL_PTR 1000
 
 //******* Define Variable of EEPROM for Setting ********//
@@ -629,12 +629,12 @@ void loop() {
             }
             break;
     }
-
+    
     //----DataLog--//
     if (RTC.getMinute() % htPeriodTime == 0){
         dlPointer++;
 
-        int adrHead = (dlPointer * (sizeof(htDateTime) + sizeof(htTemp) + sizeof(htRH)) + DL_PTR);
+        int adrHead = (dlPointer * (sizeof(htDateTime) + sizeof(htTemp) + sizeof(htRH)));
         DateTime dt = RTClib::now();
         htDateTime = dt.unixtime();
         dlEEPROM.put(adrHead, htDateTime);
