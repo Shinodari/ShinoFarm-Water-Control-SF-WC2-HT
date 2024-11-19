@@ -1,8 +1,10 @@
 #include <Wire.h>
+#include <EEPROM.h>
 
 #include <LiquidCrystal_I2C.h>
 #include <DS3231.h>
 #include <EEPROM-Storage.h>
+#include <at24c32.h>
 #include <ArtronShop_SHT45.h>
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -213,14 +215,14 @@ enum DISPLAY_MAIN{
     MN_CONTROLLER,
     MN_HT
 };
-uint8_t mainDisplayIndex = MN_CONTROLLER;      ////////////Sample----------------------------*****
+uint8_t mainDisplayIndex = MN_CONTROLLER;
 
 enum DISPLAY_MAIN_STATE{
     MN_STT_CONTROLLER_ONLY,
     MN_STT_HT_ONLY,
     MN_STT_CONTROLLER_HT
 };
-uint8_t mainDisplayState = MN_STT_CONTROLLER_HT;
+uint8_t mainDisplayState = MN_STT_CONTROLLER_ONLY;    ////////Feature(#5)-----
 
 //******** Action variables ********//
 uint32_t mainDisplayAct;
@@ -229,8 +231,7 @@ float mainDisplayTemp;
 float mainDisplayRH;
 
 //-------- Adjust for Switch display  ---------//
-uint8_t mainDisplayTime = 5;    //Sec   ////////////Sample----------------
-
+uint8_t mainDisplayTime = 5;    //Sec   ////////Feature(#5)---------
 
 ///////////// Declear variables for Main Display (Classic) /////////////
 enum DISPLAY_CLASSIC_HT{
@@ -245,6 +246,11 @@ uint32_t mainDisplayClassicAct;
 
 //-------- Adjust for Update display  ---------//
 uint8_t mainDisplayClassicUpdateTime = 10;  //Sec
+
+///////////// Declear variables for Main Display (New) /////////////
+
+//-------- Adjust for Update display  ---------//
+uint8_t mainDisplayNewTime = 10;  //Sec
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -360,13 +366,19 @@ uint32_t manualTimeOutAct;
 ///////////////////////////////////////////////////////////////////////////////////
 //-----------------------------Humidity and Temperature--------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
+// Pointer put to Internal
+// Data put to External
+#define EX_EEPROM_DATA 0x50
 
 //******** Declear variables for Record ********//
-uint8_t htAddresCurrent;
-uint8_t htPreriodTime = 15; //Minute
+uint32_t htDateTime;
+float htTemp;
+float htRH;
+
+uint8_t htPeriodTime = 15;      //Minute
 
 ///////////////////////////////////////////////////////////////////////////////////
-//--------------------------------------EEPROM-----------------------------------//
+//----------------------------------Internal EEPROM------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 //********** Define EEPROM Adress for Setting ************//
 //Setting allocate 128bit (8 Values for data 8bit + checksum 8bit)
@@ -411,6 +423,9 @@ uint8_t htPreriodTime = 15; //Minute
 #define P15_ADR P14_ADR + 2 + 1
 #define P16_ADR P15_ADR + 2 + 1
 
+//********** Define EEPROM Adress for DataLog ************//
+#define DL_PTR 1000
+
 //******* Define Variable of EEPROM for Setting ********//
 EEPROMStorage<uint8_t> eepSettingBackLight(V1_ADR, BACKLIGHT_DEFAULT);
 EEPROMStorage<uint8_t> eepSettingTOMenu(V2_ADR, MENU_TIMEOUT_DEFAULT);
@@ -451,6 +466,20 @@ EEPROMStorage<uint16_t> eepPeriodWT14(P14_ADR, 0);
 EEPROMStorage<uint16_t> eepPeriodWT15(P15_ADR, 0);
 EEPROMStorage<uint16_t> eepPeriodWT16(P16_ADR, 0);
 
+//********** Define Variable of EEPROM for Pointer of DataLog ************//
+EEPROMStorage<uint8_t> dlPointer(DL_PTR, 0);    //Next position for record the data log
+
+///////////////////////////////////////////////////////////////////////////////////
+//-------------------------------External EEPROM(0x50)---------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//********** Define EEPROM Adress for Setting ************//
+#define DL_ADR 0
+const uint8_t DL_MAX = 288;
+
+//******* Define Variable of External EEPROM for DataLog ********//
+AT24C32 dlEEPROM(AT24C_ADDRESS_0);
+
 ///////////////////////////////////////////////////////////////////////////////////
 //**********************************Setep Process********************************//
 ///////////////////////////////////////////////////////////////////////////////////
@@ -474,7 +503,6 @@ void setup() {
         LCD.print("SHT45 not found!");
         delay(1000);
     }
-
     //--Button--//
     for(int pin : buttons){
         pinMode(pin, INPUT_PULLUP);
@@ -504,6 +532,11 @@ void setup() {
     //--Main Display--//
     setMainDisplayAct();
     setMainDisplayClassicAct();
+
+    //--DataLog--//
+    if (dlPointer > DL_MAX){
+        dlPointer = 0;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -595,6 +628,34 @@ void loop() {
                 LCD.clear();
             }
             break;
+    }
+
+    //--External EEPROM--//
+    //Check Error
+    while (int err = dlEEPROM.getLastError() != 0){
+        LCD.clear();
+        LCD.print("External EEPROM!");
+        LCD.setCursor(0, 1);
+        LCD.print("Error reading");
+        delay(1000);
+    }
+
+    //----DataLog--//
+    if (RTC.getMinute() % htPeriodTime == 0){
+        dlPointer++;
+
+        int adrHead = (dlPointer * (sizeof(htDateTime) + sizeof(htTemp) + sizeof(htRH)) + DL_PTR);
+        DateTime dt = RTClib::now();
+        htDateTime = dt.unixtime();
+        dlEEPROM.put(adrHead, htDateTime);
+
+        adrHead += sizeof(htDateTime);
+        htTemp = getTemp();
+        dlEEPROM.put(adrHead, htTemp);
+
+        adrHead += sizeof(htRH);
+        htRH = getRH();
+        dlEEPROM.put(adrHead, htRH);
     }
 }
 
