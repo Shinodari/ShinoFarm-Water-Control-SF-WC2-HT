@@ -371,9 +371,11 @@ uint32_t manualTimeOutAct;
 #define EX_EEPROM_DATA 0x50
 
 //******** Declear variables for Record ********//
-uint32_t htDateTime;
-float htTemp;
-float htRH;
+struct DataLog{
+    uint32_t dateTime;
+    float temp;
+    float rh;
+};
 
 uint8_t htPeriodTime = 2;      //Minute
 
@@ -629,23 +631,17 @@ void loop() {
             }
             break;
     }
-    
+
     //----DataLog--//
     if (RTC.getMinute() % htPeriodTime == 0){
-        dlPointer++;
-
-        int adrHead = (dlPointer * (sizeof(htDateTime) + sizeof(htTemp) + sizeof(htRH)));
+        DataLog dl;
+        int adrHead = (dlPointer * sizeof(dl));
         DateTime dt = RTClib::now();
-        htDateTime = dt.unixtime();
-        dlEEPROM.put(adrHead, htDateTime);
-
-        adrHead += sizeof(htDateTime);
-        htTemp = getTemp();
-        dlEEPROM.put(adrHead, htTemp);
-
-        adrHead += sizeof(htRH);
-        htRH = getRH();
-        dlEEPROM.put(adrHead, htRH);
+        dl.dateTime = dt.unixtime();
+        dl.temp = getTemp();
+        dl.rh = getRH();
+        dlEEPROM.put(adrHead, dl);
+        dlPointer++;
     }
 }
 
