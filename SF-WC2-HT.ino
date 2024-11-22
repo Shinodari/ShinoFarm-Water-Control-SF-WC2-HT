@@ -368,7 +368,7 @@ uint32_t manualTimeOutAct;
 ///////////////////////////////////////////////////////////////////////////////////
 // Pointer put to Internal
 // Data put to External
-#define EX_EEPROM_DATA 0x50
+#define EX_EEPROM_DATA 0x57
 
 //******** Declear variables for Record ********//
 struct DataLog{
@@ -377,7 +377,9 @@ struct DataLog{
     float rh;
 };
 
-uint8_t htPeriodTime = 2;      //Minute
+byte htMinuteAct;
+uint8_t htPeriodTime = 1;      //Minute
+
 
 ///////////////////////////////////////////////////////////////////////////////////
 //----------------------------------Internal EEPROM------------------------------//
@@ -469,7 +471,7 @@ EEPROMStorage<uint16_t> eepPeriodWT15(P15_ADR, 0);
 EEPROMStorage<uint16_t> eepPeriodWT16(P16_ADR, 0);
 
 //********** Define Variable of EEPROM for Pointer of DataLog ************//
-EEPROMStorage<uint8_t> dlPointer(DL_PTR, 0);    //Next position for record the data log
+EEPROMStorage<uint16_t> dlPointer(DL_PTR, 0);    //Next position for record the data log
 
 ///////////////////////////////////////////////////////////////////////////////////
 //-------------------------------External EEPROM(0x50)---------------------------//
@@ -536,9 +538,9 @@ void setup() {
     setMainDisplayClassicAct();
 
     //--DataLog--//
-    if (dlPointer > DL_MAX){
-        dlPointer = 0;
-    }
+    htMinuteAct = RTC.getMinute();
+    checkPointerDataLog();
+
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -609,15 +611,20 @@ void loop() {
     }
 
     //----DataLog--//
-    if (RTC.getMinute() % htPeriodTime == 0){
+    byte cMinute = RTC.getMinute();
+    if (cMinute == htMinuteAct){
+        if (cMinute % htPeriodTime == 0){
         DataLog dl;
-        int adrHead = (dlPointer * sizeof(dl));
+            int adrHead = (dlPointer * sizeof(struct DataLog));
         DateTime dt = RTClib::now();
         dl.dateTime = dt.unixtime();
         dl.temp = getTemp();
         dl.rh = getRH();
         dlEEPROM.put(adrHead, dl);
         dlPointer++;
+            checkPointerDataLog();
+        }
+        htMinuteAct = cMinute + 1;
     }
 }
 
@@ -2015,6 +2022,16 @@ void setMainDisplayClassicAct(){
     mainDisplayClassicAct = millis() + (mainDisplayClassicUpdateTime * 1000L);
     mainDisplayTemp = getTemp();
     mainDisplayRH = getRH();
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//--------------------------------DataLog FUNCTION-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+void checkPointerDataLog(){
+    if (dlPointer > DL_MAX){
+        dlPointer = 0;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
