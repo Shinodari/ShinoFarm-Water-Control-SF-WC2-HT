@@ -607,30 +607,6 @@ void loop() {
         solenoid_state = false;
         digitalWrite(SOLENOID_PIN, solenoid_state);
     }
-    
-    //--Main Display--//
-    switch (mainDisplayState){
-        case MN_STT_CONTROLLER_HT:
-            if (millis() >= mainDisplayAct){
-                if (mainDisplayIndex < MN_HT)
-                    mainDisplayIndex++;
-                else
-                    mainDisplayIndex = 0;
-                setMainDisplayAct();
-                LCD.clear();
-            }
-            break;
-        case MN_STT_CONTROLLER_ONLY:
-            if (millis() >= mainDisplayClassicAct){
-                if (dispMeasurementIndex < RH)
-                    dispMeasurementIndex++;
-                else
-                    dispMeasurementIndex = 0;
-                setMainDisplayClassicAct();
-                LCD.clear();
-            }
-            break;
-    }
 
     //----DataLog--//
     if (RTC.getMinute() % htPeriodTime == 0){
@@ -1279,12 +1255,28 @@ void dispMain(){
 
     switch (mainDisplayState){
         case MN_STT_CONTROLLER_ONLY:
+            if (millis() >= mainDisplayClassicAct){
+                if (dispMeasurementIndex < RH)
+                    dispMeasurementIndex++;
+                else
+                    dispMeasurementIndex = 0;
+                setMainDisplayClassicAct();
+                LCD.clear();
+            }
             dispMainClassic();
             break;
         case MN_STT_HT_ONLY:
             dispMainHT();
             break;
         case MN_STT_CONTROLLER_HT:
+            if (millis() >= mainDisplayAct){
+                if (mainDisplayIndex < MN_HT)
+                    mainDisplayIndex++;
+                else
+                    mainDisplayIndex = 0;
+                setMainDisplayAct();
+                LCD.clear();
+            }
             switch (mainDisplayIndex){
                 case MN_CONTROLLER:
                     dispMainClassic();
