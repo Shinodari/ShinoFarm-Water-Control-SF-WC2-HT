@@ -126,6 +126,7 @@ int welcomeDelay = 1000;    //Time for show welcome message (second)
 enum DISPLAY_STATE{
     DS_MAIN,
     DS_ADJUST_WT,
+    DS_DATALOG,
     DS_SETTING
 };
 
@@ -380,6 +381,11 @@ struct DataLog{
 byte htMinuteAct;
 uint8_t htPeriodTime = 1;      //Minute
 
+///////////////////////////////////////////////////////////////////////////////////
+//---------------------------------DataLog Monitor-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+uint16_t dlmPointer = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////
 //----------------------------------Internal EEPROM------------------------------//
@@ -479,10 +485,10 @@ EEPROMStorage<uint16_t> dlPointer(DL_PTR, 0);    //Next position for record the 
 
 //********** Define EEPROM Adress for Setting ************//
 #define DL_ADR 0
-const uint8_t DL_MAX = 288;
+const uint16_t DL_MAX = 288;
 
 //******* Define Variable of External EEPROM for DataLog ********//
-AT24C32 dlEEPROM(AT24C_ADDRESS_0);
+AT24C32 dlEEPROM(EX_EEPROM_DATA);
 
 ///////////////////////////////////////////////////////////////////////////////////
 //**********************************Setep Process********************************//
@@ -583,6 +589,9 @@ void loop() {
                 break;
         }
         break;
+    case DS_DATALOG:
+        dispDataLogMoniter();
+        break;
     case DS_SETTING:
         dispSetting();
     }
@@ -609,19 +618,19 @@ void loop() {
         solenoid_state = false;
         digitalWrite(SOLENOID_PIN, solenoid_state);
     }
-
+    
     //----DataLog--//
     byte cMinute = RTC.getMinute();
     if (cMinute == htMinuteAct){
         if (cMinute % htPeriodTime == 0){
-        DataLog dl;
+            DataLog dl;
             int adrHead = (dlPointer * sizeof(struct DataLog));
-        DateTime dt = RTClib::now();
-        dl.dateTime = dt.unixtime();
-        dl.temp = getTemp();
-        dl.rh = getRH();
-        dlEEPROM.put(adrHead, dl);
-        dlPointer++;
+            DateTime dt = RTClib::now();
+            dl.dateTime = dt.unixtime();
+            dl.temp = getTemp();
+            dl.rh = getRH();
+            dlEEPROM.put(adrHead, dl);
+            dlPointer++;
             checkPointerDataLog();
         }
         htMinuteAct = cMinute + 1;
@@ -784,6 +793,11 @@ void btSettingHold(){
 
 void btUpPress(){
     switch (dispStateCurrent){
+        case DS_MAIN:
+            LCD.clear();
+            dispStateCurrent = DS_DATALOG;
+            dlmPointer = 0;
+            break;
         case DS_ADJUST_WT:
             switch (dispAdjustWTCurrent){
                 case WT_MAIN:
@@ -811,6 +825,14 @@ void btUpPress(){
                     }
                     LCD.clear();
                     break;
+            }
+            break;
+        case DS_DATALOG:
+            if (dlmPointer < DL_MAX){
+                dlmPointer++;
+                LCD.clear();
+            } else {
+                dlmPointer = 0;
             }
             break;
         case DS_SETTING:
@@ -891,6 +913,14 @@ void btDownPress(){
                     LCD.clear();
                     break;
             }
+        case DS_DATALOG:
+            if (dlmPointer > 0){
+                dlmPointer--;
+                LCD.clear();
+            } else {
+                dlmPointer = DL_MAX;
+            }
+            break;
         case DS_SETTING:
             switch (dispSettingCurrent){
                 case ST_MAIN:
@@ -1110,6 +1140,9 @@ void btBackPress(){
             }
             dispBlinkSelect = HOUR;
             break;
+        case DS_DATALOG:
+            dispStateCurrent = DS_MAIN;
+            break;
         case DS_SETTING:
             switch (dispSettingCurrent){
                 case ST_MAIN:
@@ -1259,7 +1292,6 @@ void adjustStTimeOrPeriodDown(uint8_t stepMinute, uint8_t stepSecond){
 ///////////////////////////////////////////////////////////////////////////////////
 void dispMain(){
     LCD.home();
-
     switch (mainDisplayState){
         case MN_STT_CONTROLLER_ONLY:
             if (millis() >= mainDisplayClassicAct){
@@ -1584,6 +1616,34 @@ void dispReset(){
     LCD.print("?");
     blink();
     printSelectYesNo();
+}
+
+void dispDataLogMoniter(){
+    DataLog dl;
+    dlEEPROM.get(dlmPointer * sizeof(struct DataLog), dl);
+    DateTime dt(dl.dateTime);
+    //Line1
+    LCD.home();
+    LCD.print(dispFillCharFullDigit(dt.day(), '0', 2));
+    LCD.print("/");
+    LCD.print(dispFillCharFullDigit(dt.month(), '0', 2));
+    printSpace(1);
+    LCD.print(dispFillCharFullDigit(dt.hour(), '0', 2));
+    LCD.print(":");
+    LCD.print(dispFillCharFullDigit(dt.minute(), '0', 2));
+
+    printSpace(1);
+    LCD.print("#");
+    LCD.print(dispFillCharFullDigit(dlmPointer + 1, '0', 3));
+    //Line2
+    LCD.setCursor(0, 1);
+    LCD.print(dl.temp);
+    LCD.print(char(0));
+    LCD.print("C");
+
+    printSpace(3);
+    LCD.print(dl.rh);
+    LCD.print("%");
 }
 
 //************ Calculator blink time *************//
@@ -2027,6 +2087,22 @@ void setMainDisplayClassicAct(){
 ///////////////////////////////////////////////////////////////////////////////////
 //--------------------------------DataLog FUNCTION-------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
+
+void getDataLog(){    
+    //uint32_t time_stamp[DL_MAX];
+    unsigned long minTimeStamp = 4102444799;
+    int minPointer;
+    for(int i = 0; i < DL_MAX; i++){
+        DataLog dl1;
+        dlEEPROM.get(i * sizeof(struct DataLog), dl1);
+        DateTime dt(dl1.dateTime);
+        if (dt.unixtime() < minPointer){
+            minTimeStamp = dt.unixtime();
+            minPointer = i;
+        }
+        //time_stamp[i] = dl1;
+    }
+}
 
 void checkPointerDataLog(){
     if (dlPointer > DL_MAX){
