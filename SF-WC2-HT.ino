@@ -223,7 +223,7 @@ enum DISPLAY_MAIN_STATE{
     MN_STT_HT_ONLY,
     MN_STT_CONTROLLER_HT
 };
-uint8_t mainDisplayState = MN_STT_CONTROLLER_ONLY;    ////////Feature(#5)-----
+uint8_t mainDisplayState = MN_STT_CONTROLLER_HT;
 
 //******** Action variables ********//
 uint32_t mainDisplayAct;
@@ -232,7 +232,7 @@ float mainDisplayTemp;
 float mainDisplayRH;
 
 //-------- Adjust for Switch display  ---------//
-uint8_t mainDisplayTime = 5;    //Sec   ////////Feature(#5)---------
+uint8_t mainDisplaySwitchTime = 3;    //Sec
 
 ///////////// Declear variables for Main Display (Classic) /////////////
 enum DISPLAY_CLASSIC_HT{
@@ -246,12 +246,15 @@ uint8_t dispMeasurementIndex = TEMP_IN;
 uint32_t mainDisplayClassicAct;
 
 //-------- Adjust for Update display  ---------//
-uint8_t mainDisplayClassicUpdateTime = 10;  //Sec
+uint8_t mainDisplayClassicSwitchTime = 3;  //Sec
 
-///////////// Declear variables for Main Display (New) /////////////
+///////////// Declear variables for Main Display (HT Only) /////////////
+
+//******** Action variables ********//
+uint32_t mainDisplayHTOnlycAct;
 
 //-------- Adjust for Update display  ---------//
-uint8_t mainDisplayNewTime = 10;  //Sec
+uint8_t mainDisplayUpdateHTTime = 2;  //Sec
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -634,7 +637,7 @@ void loop() {
             checkPointerDataLog();
         }
         if (cMinute + 1 < 60)
-        htMinuteAct = cMinute + 1;
+            htMinuteAct = cMinute + 1;
         else
             htMinuteAct = 0;
     }
@@ -1308,6 +1311,9 @@ void dispMain(){
             dispMainClassic();
             break;
         case MN_STT_HT_ONLY:
+            if (millis() >= mainDisplayHTOnlycAct){
+                setMainDisplayHTOnlyAct();
+            }
             dispMainHT();
             break;
         case MN_STT_CONTROLLER_HT:
@@ -2076,13 +2082,19 @@ float getRH(){
 //-----------------------------Main Display FUNCTION-----------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 void setMainDisplayAct(){
-    mainDisplayAct = millis() + (mainDisplayTime * 1000L);
+    mainDisplayAct = millis() + (mainDisplaySwitchTime * 1000L);
     mainDisplayTemp = getTemp();
     mainDisplayRH = getRH();
 }
 
 void setMainDisplayClassicAct(){
-    mainDisplayClassicAct = millis() + (mainDisplayClassicUpdateTime * 1000L);
+    mainDisplayClassicAct = millis() + (mainDisplayClassicSwitchTime * 1000L);
+    mainDisplayTemp = getTemp();
+    mainDisplayRH = getRH();
+}
+
+void setMainDisplayHTOnlyAct(){
+    mainDisplayHTOnlycAct = millis() + (mainDisplayUpdateHTTime * 1000L);
     mainDisplayTemp = getTemp();
     mainDisplayRH = getRH();
 }
@@ -2111,6 +2123,10 @@ void checkPointerDataLog(){
     if (dlPointer > DL_MAX){
         dlPointer = 0;
     }
+}
+
+int getPointerDataLog(){        /////May Remove
+    return dlPointer * sizeof(struct DataLog);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
