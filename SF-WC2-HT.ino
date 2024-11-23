@@ -633,7 +633,10 @@ void loop() {
             dlPointer++;
             checkPointerDataLog();
         }
+        if (cMinute + 1 < 60)
         htMinuteAct = cMinute + 1;
+        else
+            htMinuteAct = 0;
     }
 }
 
