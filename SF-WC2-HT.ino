@@ -547,7 +547,21 @@ void setup() {
     setMainDisplayClassicAct();
 
     //--DataLog--//
+    DataLog dl;
+    dlEEPROM.get((dlPointer - 1) * sizeof(struct DataLog), dl);
+    DateTime dt(dl.dateTime);
+    if ((dt.day() == RTC.getDate())
+      && (dt.month() == RTC.getMonth(century))
+      && (dt.year() == RTC.getYear() + 2000)
+      && (dt.hour() == RTC.getHour(h12hflag,pmflag))
+      && (dt.minute() == RTC.getMinute())){
+        if (dt.minute() < 60)
+            htMinuteAct = dt.minute() + 1;
+        else
+            htMinuteAct = 0;
+    } else {
     htMinuteAct = RTC.getMinute();
+    }
     checkPointerDataLog();
 
 }
