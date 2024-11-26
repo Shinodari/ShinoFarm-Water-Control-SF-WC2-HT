@@ -816,7 +816,7 @@ void btUpPress(){
         case DS_MAIN:
             LCD.clear();
             dispStateCurrent = DS_DATALOG;
-            dlmPointer = 0;
+            getDLMPointer();
             break;
         case DS_ADJUST_WT:
             switch (dispAdjustWTCurrent){
@@ -2117,19 +2117,16 @@ void setMainDisplayHTOnlyAct(){
 //--------------------------------DataLog FUNCTION-------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
-void getDataLog(){    
-    //uint32_t time_stamp[DL_MAX];
-    unsigned long minTimeStamp = 4102444799;
-    int minPointer;
+void getDLMPointer(){
+    unsigned long maxTimeStamp;
     for(int i = 0; i < DL_MAX; i++){
-        DataLog dl1;
-        dlEEPROM.get(i * sizeof(struct DataLog), dl1);
-        DateTime dt(dl1.dateTime);
-        if (dt.unixtime() < minPointer){
-            minTimeStamp = dt.unixtime();
-            minPointer = i;
+        DataLog dl;
+        dlEEPROM.get(i * sizeof(struct DataLog), dl);
+        DateTime dt(dl.dateTime);
+        if (dt.unixtime() > maxTimeStamp){
+            maxTimeStamp = dt.unixtime();
+            dlmPointer = i;
         }
-        //time_stamp[i] = dl1;
     }
 }
 
