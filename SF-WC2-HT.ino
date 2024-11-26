@@ -2117,7 +2117,9 @@ void setMainDisplayHTOnlyAct(){
 //--------------------------------DataLog FUNCTION-------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
+// For DataLog Monitor
 void getDLMPointer(){
+    LCD.print("Please wait..");
     unsigned long maxTimeStamp;
     for(int i = 0; i < DL_MAX; i++){
         DataLog dl;
