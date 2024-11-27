@@ -583,24 +583,6 @@ void setup() {
         htMinuteAct = RTC.getMinute();
     }
     checkPointerDataLog();
-
-    /**///TEMP////
-    Serial.begin(9600);
-    Serial.println();
-    Serial.print("Pointer:");
-    Serial.println(dlPointer);
-    Serial.print(dt.year());
-    Serial.print("/");
-    Serial.print(dt.month());
-    Serial.print("/");
-    Serial.print(dt.day());
-    Serial.print(" ");
-    Serial.print(dt.hour());
-    Serial.print(":");
-    Serial.println(dt.minute());
-    Serial.println(RTC.getYear());
-    Serial.println(htMinuteAct);
-    Serial.println();/**/
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -686,16 +668,6 @@ void loop() {
             dlEEPROM.put(adrHead, dl);
             dlPointer++;
             checkPointerDataLog();
-            /**///TEMP
-            Serial.print(dt.hour());
-            Serial.print(":");
-            Serial.print(dt.minute());
-            Serial.print(" ");
-            Serial.print("Temp:");
-            Serial.print(dl.temp);
-            Serial.print(" RH:");
-            Serial.println(dl.rh);
-            /**////
         }
         if (cMinute + 1 < 60)
             htMinuteAct = cMinute + 1;
