@@ -158,6 +158,7 @@ enum DISPLAY_ST_MENU{
     ST_MENU_BACKLIGHT,
     ST_MENU_TIMEOUT_MENU,    //Include AdjustWaterTime
     ST_MENU_TIMEOUT_MANUAL_WT,
+    ST_MENU_RECORD_FREQUENCY,
     ST_MENU_RESET
 };
 //Define message for Setting Menu//
@@ -165,6 +166,7 @@ enum DISPLAY_ST_MENU{
 #define DISP_ST_MENU_BACKLIGHT "BackLight Time"
 #define DISP_ST_MENU_TIMEOUT_MENU "Menu Timeout"
 #define DISP_ST_MENU_TIMEOUT_MANUAL_WT "Limit Manual"
+#define DISP_ST_MENU_RECORD_FREQUENCY "Record Time"
 #define DISP_ST_MENU_RESET "Reset"
 
 //Setting Reset Menu
@@ -232,7 +234,7 @@ float mainDisplayTemp;
 float mainDisplayRH;
 
 //-------- Adjust for Switch display  ---------//
-uint8_t mainDisplaySwitchTime = 3;    //Sec
+uint8_t mainDisplaySwitchTime = 5;    //Sec
 
 ///////////// Declear variables for Main Display (Classic) /////////////
 enum DISPLAY_CLASSIC_HT{
@@ -374,6 +376,20 @@ uint32_t manualTimeOutAct;
 // Data put to External
 #define EX_EEPROM_DATA 0x57
 
+//******** Define count of Record Frequency Option ********//
+#define NUM_RECORD_FREQUENCY 5
+
+//******** Define Default Factory value ********//
+#define RECORD_FREQUENCY_DEFAULT 15
+
+//******** Declear variables for EEPROM ********//
+//uint8_t htRecordFrequency;
+
+uint8_t htRecordFrequencyOptionTime[NUM_RECORD_FREQUENCY] = {
+    1, 2, 5, 10, 15
+};
+int recordFrequencyOptionIndex = 0;
+
 //******** Declear variables for Record ********//
 struct DataLog{
     uint32_t dateTime;
@@ -381,8 +397,10 @@ struct DataLog{
     float rh;
 };
 
-byte htMinuteAct;
-uint8_t htPeriodTime = 1;      //Minute
+uint8_t htPeriodTime;      //Minute unit
+
+//******** Action variables ********//
+byte htMinuteAct;       //Get next minute
 
 ///////////////////////////////////////////////////////////////////////////////////
 //---------------------------------DataLog Monitor-------------------------------//
@@ -399,6 +417,7 @@ uint16_t dlmPointer = 0;
 #define V2_ADR V1_ADR + 1 + 1
 #define V3_ADR V2_ADR + 1 + 1
 #define V4_ADR V3_ADR + 1 + 1
+#define V5_ADR V4_ADR + 1 + 1
 
 //********** Define EEPROM Adress for Water Time ************//
 //Water Time allocate 768bit for 16 Water Time
@@ -443,6 +462,7 @@ uint16_t dlmPointer = 0;
 EEPROMStorage<uint8_t> eepSettingBackLight(V1_ADR, BACKLIGHT_DEFAULT);
 EEPROMStorage<uint8_t> eepSettingTOMenu(V2_ADR, MENU_TIMEOUT_DEFAULT);
 EEPROMStorage<uint8_t> eepSettingTOManualWT(V3_ADR, MANUAL_TIMEOUT_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingRecordFrequency(V4_ADR, RECORD_FREQUENCY_DEFAULT);
 
 //******* Define Variable of EEPROM for Water Time ********//
 EEPROMStorage<uint16_t> eepStartWT1(S1_ADR, 0);
@@ -560,10 +580,27 @@ void setup() {
         else
             htMinuteAct = 0;
     } else {
-    htMinuteAct = RTC.getMinute();
+        htMinuteAct = RTC.getMinute();
     }
     checkPointerDataLog();
 
+    /**///TEMP////
+    Serial.begin(9600);
+    Serial.println();
+    Serial.print("Pointer:");
+    Serial.println(dlPointer);
+    Serial.print(dt.year());
+    Serial.print("/");
+    Serial.print(dt.month());
+    Serial.print("/");
+    Serial.print(dt.day());
+    Serial.print(" ");
+    Serial.print(dt.hour());
+    Serial.print(":");
+    Serial.println(dt.minute());
+    Serial.println(RTC.getYear());
+    Serial.println(htMinuteAct);
+    Serial.println();/**/
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -649,6 +686,16 @@ void loop() {
             dlEEPROM.put(adrHead, dl);
             dlPointer++;
             checkPointerDataLog();
+            /**///TEMP
+            Serial.print(dt.hour());
+            Serial.print(":");
+            Serial.print(dt.minute());
+            Serial.print(" ");
+            Serial.print("Temp:");
+            Serial.print(dl.temp);
+            Serial.print(" RH:");
+            Serial.println(dl.rh);
+            /**////
         }
         if (cMinute + 1 < 60)
             htMinuteAct = cMinute + 1;
@@ -886,6 +933,12 @@ void btUpPress(){
                                 LCD.clear();
                             }
                             break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            if (recordFrequencyOptionIndex < NUM_RECORD_FREQUENCY -1){
+                                recordFrequencyOptionIndex++;
+                                LCD.clear();
+                            }
+                            break;
                         case ST_MENU_RESET:
                             if (dispSTResetIndex > 0 && dispSTResetCurrent == ST_RS_MAIN){
                                 dispSTResetIndex--;
@@ -971,6 +1024,13 @@ void btDownPress(){
                                 manualTimeoutOptinIndex--;
                                 LCD.clear();
                             }
+                            break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            if (recordFrequencyOptionIndex > 0){
+                                recordFrequencyOptionIndex--;
+                                LCD.clear();
+                            }
+                            break;
                         case ST_MENU_RESET:
                             if (dispSTResetIndex < RS_DEFAULT && dispSTResetCurrent == ST_RS_MAIN){
                                 dispSTResetIndex++;
@@ -1080,6 +1140,9 @@ void btEnterPress(){
                         case ST_MENU_TIMEOUT_MANUAL_WT:
                             manualTimeoutOptinIndex = findIndex(manualTimeoutOptionTime, manualTimeout);
                             break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            recordFrequencyOptionIndex = findIndex(htRecordFrequencyOptionTime, htPeriodTime);
+                            break;
                         case ST_MENU_RESET:
                             dispSTResetCurrent = ST_RS_MAIN;
                             dispSTResetIndex = 0;
@@ -1107,6 +1170,10 @@ void btEnterPress(){
                             break;
                         case ST_MENU_TIMEOUT_MANUAL_WT:
                             eepManualWTTimeoutSave();
+                            dispSettingCurrent = ST_MAIN;
+                            break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            eepRecordFrequencySave();
                             dispSettingCurrent = ST_MAIN;
                             break;
                         case ST_MENU_RESET:
@@ -1526,6 +1593,11 @@ void dispSetting(){
                     dispSTMenuCurrent = ST_MENU_TIMEOUT_MANUAL_WT;
                     printSpace(3);
                     break;
+                case ST_MENU_RECORD_FREQUENCY:
+                    LCD.print(DISP_ST_MENU_RECORD_FREQUENCY);
+                    dispSTMenuCurrent = ST_MENU_RECORD_FREQUENCY;
+                    printSpace(4);
+                    break;
                 case ST_MENU_RESET:
                     LCD.print(DISP_ST_MENU_RESET);
                     dispSTMenuCurrent = ST_MENU_RESET;
@@ -1554,6 +1626,9 @@ void dispSetting(){
                     break;
                 case ST_MENU_TIMEOUT_MANUAL_WT:
                     dispManualTimeOutSetting();
+                    break;
+                case ST_MENU_RECORD_FREQUENCY:
+                    dispRecordFrequency();
                     break;
                 case ST_MENU_RESET:
                     dispResetSetting();
@@ -1622,6 +1697,12 @@ void dispResetSetting(){
             dispReset();
             break;
     }
+}
+
+void dispRecordFrequency(){
+    LCD.print(DISP_ST_MENU_RECORD_FREQUENCY);
+    LCD.setCursor(0, 1);
+    printOptionTime(htRecordFrequencyOptionTime, recordFrequencyOptionIndex, NUM_RECORD_FREQUENCY, "m");
 }
 
 void dispReset(){
@@ -1944,6 +2025,7 @@ void eepAllSettingLoad(){
     backLightTime = eepSettingBackLight;
     menuTimeout = eepSettingTOMenu;
     manualTimeout = eepSettingTOManualWT;
+    htPeriodTime = eepSettingRecordFrequency;
 }
 
 void eepBacklightSave(){
@@ -1966,6 +2048,12 @@ void eepManualWTTimeoutSave(){
     uint8_t manualWTT = manualTimeoutOptionTime[manualTimeoutOptinIndex];
     manualTimeout = manualWTT;
     eepSettingTOManualWT = manualWTT;
+}
+
+void eepRecordFrequencySave(){
+    uint8_t htRecordFrequencyT = htRecordFrequencyOptionTime[recordFrequencyOptionIndex];
+    htPeriodTime = htRecordFrequencyT;
+    eepSettingRecordFrequency = htRecordFrequencyT;
 }
 
 void eepWaterTimeReset(){
