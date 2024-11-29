@@ -514,6 +514,12 @@ const uint16_t DL_MAX = 288;
 AT24C32 dlEEPROM(EX_EEPROM_DATA);
 
 ///////////////////////////////////////////////////////////////////////////////////
+//---------------------------Link External by Serial Port------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+const String LINK_GET_DATALOG = "getDatalog";
+
+///////////////////////////////////////////////////////////////////////////////////
 //**********************************Setep Process********************************//
 ///////////////////////////////////////////////////////////////////////////////////
 void setup() {
@@ -583,6 +589,9 @@ void setup() {
         htMinuteAct = RTC.getMinute();
     }
     checkPointerDataLog();
+
+    //--Serial Port--//
+    Serial.begin(9600);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -673,6 +682,19 @@ void loop() {
             htMinuteAct = cMinute + 1;
         else
             htMinuteAct = 0;
+    }
+
+    //--Link Water Controller Program--/
+    if (Serial.available() > 0){
+        String command = Serial.readString();
+        if (command == LINK_GET_DATALOG){
+            LCD.clear();
+            LCD.print("Sending DataLog...");
+            link_sendDataLog();
+            LCD.clear();
+            LCD.print("Completed");
+            delay(3000);
+        }
     }
 }
 
@@ -2111,6 +2133,33 @@ void spWTSort(){
         wtStartTime[i] = temp1;
         wtPeriodTime[i] = temp2;
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------------Link External FUNCTION-----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+void link_sendDataLog(){
+    for(int i = 0; i < DL_MAX; i++){
+        DataLog dl;
+        dlEEPROM.get(i * sizeof(struct DataLog), dl);
+        DateTime dt(dl.dateTime);
+        Serial.print(dt.day());
+        Serial.print("/");
+        Serial.print(dt.month());
+        Serial.print("/");
+        Serial.print(dt.year());
+        Serial.print(" ");
+        Serial.print(dt.hour());
+        Serial.print(":");
+        Serial.print(dt.minute());
+        Serial.print(",");
+        Serial.print(dl.temp);
+        Serial.print(",");
+        Serial.print(dl.rh);
+        Serial.println();
+    }
+    Serial.println("EOF");
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
