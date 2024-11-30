@@ -205,7 +205,6 @@ uint8_t dispAdjWTSettingSubIndex = WT_ST_SUB_EDIT;
 uint8_t dispAdjustWTIndex = 0;
 //Setting
 enum DISPLAY_SETTING dispSettingCurrent = ST_MAIN;
-enum DISPLAY_ST_MENU dispSTMenuCurrent = ST_MENU_TIME;
 int dispSTMenuIndex = 0;
 enum DISPLAY_ST_RESET dispSTResetCurrent = ST_RS_MAIN;
 int dispSTResetIndex = 0;       //DISPLAY_RS_SETTING
@@ -804,7 +803,7 @@ void btSettingPress(){
             }
             break;
         case DS_SETTING:
-            switch (dispSTMenuCurrent){
+            switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     switch (dispBlinkSelect){
                         case DAY:
@@ -846,7 +845,6 @@ void btSettingHold(){
             LCD.clear();
             dispStateCurrent = DS_SETTING;
             dispSettingCurrent = ST_MAIN;
-            dispSTMenuCurrent = ST_MENU_TIME;
             dispSTMenuIndex = 0;
             break;
     }
@@ -905,7 +903,7 @@ void btUpPress(){
                     }
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             adjustStTimeOrPeriodUp(1, 1);
                             break;
@@ -997,7 +995,7 @@ void btDownPress(){
                     }
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             adjustStTimeOrPeriodDown(1, 1);
                             break;
@@ -1144,7 +1142,7 @@ void btEnterPress(){
                     }
                     break;
                 case ST_MENU:                       //After into each setting
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             RTC.setDate(StTime.day);
                             RTC.setMonth(StTime.month);
@@ -1231,7 +1229,7 @@ void btBackPress(){
                     dispBlinkSelect = HOUR;
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_RESET:
                             switch (dispSTResetCurrent){
                                 case ST_RS_MAIN:
@@ -1569,32 +1567,27 @@ void dispSetting(){
             switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     LCD.print(DISP_ST_MENU_TIME);
-                    dispSTMenuCurrent = ST_MENU_TIME;
+                    
                     printSpace(3);
                     break;
                 case ST_MENU_BACKLIGHT:
                     LCD.print(DISP_ST_MENU_BACKLIGHT);
-                    dispSTMenuCurrent = ST_MENU_BACKLIGHT;
                     printSpace(1);
                     break;
                 case ST_MENU_TIMEOUT_MENU:
                     LCD.print(DISP_ST_MENU_TIMEOUT_MENU);
-                    dispSTMenuCurrent = ST_MENU_TIMEOUT_MENU;
                     printSpace(1);
                     break;
                 case ST_MENU_TIMEOUT_MANUAL_WT:
                     LCD.print(DISP_ST_MENU_TIMEOUT_MANUAL_WT);
-                    dispSTMenuCurrent = ST_MENU_TIMEOUT_MANUAL_WT;
                     printSpace(3);
                     break;
                 case ST_MENU_RECORD_FREQUENCY:
                     LCD.print(DISP_ST_MENU_RECORD_FREQUENCY);
-                    dispSTMenuCurrent = ST_MENU_RECORD_FREQUENCY;
                     printSpace(4);
                     break;
                 case ST_MENU_RESET:
                     LCD.print(DISP_ST_MENU_RESET);
-                    dispSTMenuCurrent = ST_MENU_RESET;
                     printSpace(10);
                     break;
             }
@@ -1608,7 +1601,7 @@ void dispSetting(){
 
             break;
         case ST_MENU:
-            switch (dispSTMenuCurrent){
+            switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     dispTimeSetting();
                     break;
