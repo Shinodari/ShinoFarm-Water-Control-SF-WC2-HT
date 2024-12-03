@@ -2364,6 +2364,7 @@ void eepDefaultReset(){
     uint8_t backLightT = BACKLIGHT_DEFAULT;
     uint8_t menuTimeoutT = MENU_TIMEOUT_DEFAULT;
     uint8_t timeOutWT = MANUAL_TIMEOUT_DEFAULT;
+    uint8_t htPeriodTimeT = RECORD_FREQUENCY_DEFAULT;
     uint8_t mainDisplayStyleT = MAINDISPLAY_STYLE_DEFAULT;
     uint8_t mainDisplayClassicSwitchTimeT = MAINDISPLAY_CLASSIC_SWITCH_DEFAULT;
     uint8_t mainDisplayUpdateHTTimeT = MAINDISPLAY_HT_UPDATE_DEFAULT;
@@ -2372,6 +2373,7 @@ void eepDefaultReset(){
     eepSettingBackLight = backLightT;
     eepSettingTOMenu = menuTimeoutT;
     eepSettingTOManualWT = timeOutWT;
+    eepSettingRecordFrequency = htPeriodTimeT;
     eepSettingMainDisplayStyle = mainDisplayStyleT;
     eepSettingMainDisplayClassicSwitch = mainDisplayClassicSwitchTimeT;
     eepSettingMainDisplayHTUpdate = mainDisplayUpdateHTTimeT;
@@ -2381,6 +2383,7 @@ void eepDefaultReset(){
     backLightTime = backLightT;
     menuTimeout = menuTimeoutT;
     manualTimeout = timeOutWT;
+    htPeriodTime = htPeriodTimeT;
     mainDisplayStyle = mainDisplayStyleT;
     mainDisplayClassicSwitchTime = mainDisplayClassicSwitchTimeT;
     mainDisplayHTUpdateTime = mainDisplayUpdateHTTimeT;
