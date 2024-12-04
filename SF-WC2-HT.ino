@@ -904,13 +904,13 @@ void btUpPress(){
         case DS_MAIN:
             LCD.clear();
             dispStateCurrent = DS_DATALOG;
+            dlmPointer = 0;
             getDLMPointer();
             break;
         case DS_ADJUST_WT:
             switch (dispAdjustWTCurrent){
                 case WT_MAIN:
                     LCD.clear();   
-
                     if (dispAdjustWTIndex > 0)
                         dispAdjustWTIndex--;  
 
