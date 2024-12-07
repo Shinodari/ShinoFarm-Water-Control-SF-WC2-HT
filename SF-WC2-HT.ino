@@ -333,7 +333,7 @@ int blinkTime = 10;    //fine-june
 bool solenoid_state = false;
 
 ///////////////////////////////////////////////////////////////////////////////////
-//------------------------------------Water Time---------------------------------//
+//-------------------------------Water Time by Manual----------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
 //******** Define count of Water Time ********//
@@ -343,6 +343,25 @@ bool solenoid_state = false;
 int wtStartTime[WATER_TIME_NUM];    //Minute unit
 int wtPeriodTime[WATER_TIME_NUM];   //Second unit
 int onTimePeriod;                   //PeriodTime for Water now
+
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------Water Time by Temp & RH---------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//Define RH control **Feature: defind by user**
+uint8_t wrhLower = 80;
+uint8_t wrhHigher = 90;
+uint8_t wrhCheckFrequency = 1;  //Minute unit
+uint8_t wrhTime = 3;            //Minute unit
+uint8_t wrhDelayCheck = 5;    //Minute unit
+
+//Declear variables for operate
+bool wrhActive = false;
+bool wrhActiveCheck = false;
+float wrhRHPoint;
+uint32_t wrhCheckTime;
+uint32_t wrhOffTime;
+uint32_t wrhActiveCheckTime;
 
 ///////////////////////////////////////////////////////////////////////////////////
 //------------------------------------BackLight----------------------------------//
@@ -412,7 +431,7 @@ bool manualTimeoutState = false;
 uint32_t manualTimeOutAct;
 
 ///////////////////////////////////////////////////////////////////////////////////
-//-----------------------------Humidity and Temperature--------------------------//
+//-------------------------Humidity and Temperature Record-----------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 // Pointer put to Internal
 // Data put to External
@@ -425,8 +444,6 @@ uint32_t manualTimeOutAct;
 #define RECORD_FREQUENCY_DEFAULT 15
 
 //******** Declear variables for EEPROM ********//
-//uint8_t htRecordFrequency;
-
 uint8_t htRecordFrequencyOptionTime[NUM_RECORD_FREQUENCY] = {
     1, 2, 5, 10, 15
 };
@@ -605,6 +622,9 @@ void setup() {
     LCD.createChar(2, upSymbol);
     LCD.createChar(3, downSymbol);
 
+    //--Auto Water by RH Control--//
+    wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+
     //--Water Time(EEPROM)--//
     eepAllWaterTimeLoad();
     
@@ -659,10 +679,48 @@ void loop() {
             }
         }
     }
-    if (solenoid_state && !manualTimeoutState){
+    if (solenoid_state && !manualTimeoutState && !wrhActive){
         if(((RTC.getHour(h12hflag,pmflag) * 60 * 60) + (RTC.getMinute() * 60) + RTC.getSecond()) >= onTimePeriod){
             solenoid_state = false;
             digitalWrite(SOLENOID_PIN, solenoid_state);
+        }
+    }
+
+    //--Auto Water by RH Control--//
+    if (!wrhActive){
+        if (millis() >= wrhCheckTime){
+            float rh = getRH();
+            if (rh <= wrhLower){
+                wrhActive = true;
+                wrhOffTime = millis() + (wrhTime * 60 * 1000L);
+                wrhRHPoint = rh;
+                solenoid_state = true;
+                digitalWrite(SOLENOID_PIN, solenoid_state);
+            } else {
+                wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+            }
+        }
+    } else {
+        if (!wrhActiveCheck){
+            if (millis() >= wrhOffTime){
+                wrhActiveCheck = true;
+                wrhActiveCheckTime = millis() + (wrhDelayCheck * 60 * 1000L);
+                solenoid_state = false;
+                digitalWrite(SOLENOID_PIN, solenoid_state);
+            }
+        } else {
+            if (millis() >= wrhActiveCheckTime){
+                float rh = getRH();
+                if (rh > wrhRHPoint && rh >= wrhHigher){
+                    wrhActive = false;
+                    wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+                } else {
+                    wrhOffTime = millis() + (wrhTime * 60 * 1000L);
+                    solenoid_state = true;
+                    digitalWrite(SOLENOID_PIN, solenoid_state);
+                }
+                wrhActiveCheck = false;
+            }
         }
     }
 
