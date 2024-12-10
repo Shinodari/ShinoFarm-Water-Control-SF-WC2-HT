@@ -354,6 +354,7 @@ uint8_t wrhHigher = 90;
 uint8_t wrhCheckFrequency = 1;  //Minute unit
 uint8_t wrhTime = 3;            //Minute unit
 uint8_t wrhDelayCheck = 5;    //Minute unit
+uint8_t wrhMaxRepeat = 10;
 
 //Declear variables for operate
 bool wrhActive = false;
@@ -362,6 +363,7 @@ float wrhRHPoint;
 uint32_t wrhCheckTime;
 uint32_t wrhOffTime;
 uint32_t wrhActiveCheckTime;
+uint8_t wrhRepeat = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////
 //------------------------------------BackLight----------------------------------//
@@ -714,10 +716,18 @@ void loop() {
                 if (rh > wrhRHPoint && rh >= wrhHigher){
                     wrhActive = false;
                     wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+                    wrhRepeat = 0;
                 } else {
+                    if (wrhRepeat < wrhMaxRepeat){
                     wrhOffTime = millis() + (wrhTime * 60 * 1000L);
                     solenoid_state = true;
                     digitalWrite(SOLENOID_PIN, solenoid_state);
+                        wrhRepeat++;
+                    } else {
+                        wrhActive = false;
+                        wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+                        wrhRepeat = 0;
+                    }
                 }
                 wrhActiveCheck = false;
             }
