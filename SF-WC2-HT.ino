@@ -518,7 +518,7 @@ uint16_t dlmPointer = 0;
 #define P16_ADR P15_ADR + 2 + 1
 
 //********** Define EEPROM Adress for Pointer of DataLog ************//
-#define DL_PTR 1000
+#define DL_PTR 1023
 
 //******* Define Variable of EEPROM for Setting ********//
 EEPROMStorage<uint8_t> eepSettingBackLight(V1_ADR, BACKLIGHT_DEFAULT);
