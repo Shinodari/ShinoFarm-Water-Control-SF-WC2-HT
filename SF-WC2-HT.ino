@@ -351,10 +351,10 @@ int onTimePeriod;                   //PeriodTime for Water now
 //Define RH control **Feature: defind by user**
 uint8_t wrhLower = 80;
 uint8_t wrhHigher = 90;
-uint8_t wrhCheckFrequency = 1;  //Minute unit
-uint8_t wrhTime = 3;            //Minute unit
-uint8_t wrhDelayCheck = 5;    //Minute unit
-uint8_t wrhMaxRepeat = 10;
+uint8_t wrhCheckFrequency = 1;  //Minute unit 1
+uint8_t wrhTime = 1;            //Minute unit 3
+uint8_t wrhDelayCheck = 1;    //Minute unit 5
+uint8_t wrhMaxRepeat = 10;      //10
 
 //Declear variables for operate
 bool wrhActive = false;
@@ -470,6 +470,30 @@ byte htMinuteAct;       //Get next minute
 uint16_t dlmPointer = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////
+//----------------------------------Record Process-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//Record Status Refer https://github.com/Shinodari/ShinoFarm-Water-Control-SF-WC2-HT/issues/10#issuecomment-2527870628
+enum RP_STATUS{
+    RP_WCM_START = 10,
+    RP_WCM_STOP = 11,
+    RP_WCT_START = 20,
+    RP_WCT_STOP = 21,
+    RP_WCR_START = 30,
+    RP_WCR_STOP = 31,
+    RP_WCR_LOW = 32,
+    RP_WCR_HIGH = 33,
+    RP_WCR_SUCCESS = 34,
+    RP_WCR_FAIL = 35
+};
+
+struct RecProcess{
+    uint32_t timeStemp;
+    int status;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////
 //----------------------------------Internal EEPROM------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 //********** Define EEPROM Adress for Setting ************//
@@ -518,6 +542,19 @@ uint16_t dlmPointer = 0;
 #define P14_ADR P13_ADR + 2 + 1
 #define P15_ADR P14_ADR + 2 + 1
 #define P16_ADR P15_ADR + 2 + 1
+
+//********** Define EEPROM Adress for Record Process ************//
+#define RP_START_ADR 156
+#define RP_MAX 150
+
+//Pointer
+#define RP_PTR 1021
+
+//Time Process
+#define PT_SIZE 4   //KB
+
+//Status Process
+#define PS_SIZE 1   //KB
 
 //********** Define EEPROM Adress for Pointer of DataLog ************//
 #define DL_PTR 1023
@@ -570,6 +607,10 @@ EEPROMStorage<uint16_t> eepPeriodWT16(P16_ADR, 0);
 //********** Define Variable of EEPROM for Pointer of DataLog ************//
 EEPROMStorage<uint16_t> dlPointer(DL_PTR, 0);    //Next position for record the data log
 
+//********** Define Variable of EEPROM for Pointer of Record Process ************//
+//uint16_t rpPointer;
+EEPROMStorage<uint16_t> rpPointer(RP_PTR, 0);
+
 ///////////////////////////////////////////////////////////////////////////////////
 //-------------------------------External EEPROM(0x50)---------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
@@ -586,6 +627,7 @@ AT24C32 dlEEPROM(EX_EEPROM_DATA);
 ///////////////////////////////////////////////////////////////////////////////////
 
 const String LINK_GET_DATALOG = "getDatalog";
+const String LINK_GET_PROCESS = "getProcess";
 
 ///////////////////////////////////////////////////////////////////////////////////
 //**********************************Setep Process********************************//
@@ -604,12 +646,13 @@ void setup() {
     delay(welcomeDelay);
     LCD.clear();
 
-    //--SHT45--//
+    /*/--SHT45--//
     while (!sht45.begin()){
         LCD.clear();
         LCD.print("SHT45 not found!");
         delay(1000);
-    }
+    }/**/
+
     //--Button--//
     for(int pin : buttons){
         pinMode(pin, INPUT_PULLUP);
@@ -626,6 +669,9 @@ void setup() {
 
     //--Auto Water by RH Control--//
     wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+    //Temp//-----------------
+        wrhCheckTime = 0;
+    //-----------------------*/
 
     //--Water Time(EEPROM)--//
     eepAllWaterTimeLoad();
@@ -641,6 +687,9 @@ void setup() {
 
     //--Main Display--//
     setMainDisplayAct();
+
+    //--Record Process--//
+    //getRPPointer();
 
     //--DataLog--//
     DataLog dl;
@@ -692,12 +741,23 @@ void loop() {
     if (!wrhActive){
         if (millis() >= wrhCheckTime){
             float rh = getRH();
+            /*/Temp//
+            Serial.print("Please enter the RH Lower : ");
+            while (Serial.available() == 0){
+                LCD.clear();
+                LCD.print("Please enter in Serial!");
+            }
+            rh = Serial.parseFloat();
+            Serial.println(rh);
+            ///////*/
             if (rh <= wrhLower){
                 wrhActive = true;
                 wrhOffTime = millis() + (wrhTime * 60 * 1000L);
                 wrhRHPoint = rh;
-                solenoid_state = true;
-                digitalWrite(SOLENOID_PIN, solenoid_state);
+                //solenoid_state = true;
+                digitalWrite(SOLENOID_PIN, true);
+                /*Temp/Serial.println("Start..");/**/
+                rpStatusSave(RP_WCR_START);
             } else {
                 wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
             }
@@ -707,26 +767,40 @@ void loop() {
             if (millis() >= wrhOffTime){
                 wrhActiveCheck = true;
                 wrhActiveCheckTime = millis() + (wrhDelayCheck * 60 * 1000L);
-                solenoid_state = false;
-                digitalWrite(SOLENOID_PIN, solenoid_state);
+                //solenoid_state = false;
+                digitalWrite(SOLENOID_PIN, false);
+                /*Temp/Serial.println("Stop..");/**/
+                rpStatusSave(RP_WCR_STOP);
             }
         } else {
             if (millis() >= wrhActiveCheckTime){
                 float rh = getRH();
+                /*/Temp//
+                Serial.print("Please enter the Visual RH : ");
+                while (Serial.available() == 0){
+                    LCD.clear();
+                    LCD.print("Please enter in Serial!");
+                }
+                rh = Serial.parseFloat();
+                Serial.println(rh);
+                ////////**/
                 if (rh > wrhRHPoint && rh >= wrhHigher){
-                    wrhActive = false;
+/*Ag Duplicate*/    wrhActive = false;
                     wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
                     wrhRepeat = 0;
+                    rpStatusSave(RP_WCR_SUCCESS);
                 } else {
                     if (wrhRepeat < wrhMaxRepeat){
-                    wrhOffTime = millis() + (wrhTime * 60 * 1000L);
-                    solenoid_state = true;
-                    digitalWrite(SOLENOID_PIN, solenoid_state);
+                        wrhOffTime = millis() + (wrhTime * 60 * 1000L);
+                        //solenoid_state = true;
+                        digitalWrite(SOLENOID_PIN, true);
+                        rpStatusSave(RP_WCR_START);
                         wrhRepeat++;
                     } else {
-                        wrhActive = false;
+/*Ag Duplicate*/        wrhActive = false;
                         wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
                         wrhRepeat = 0;
+                        rpStatusSave(RP_WCR_FAIL);
                     }
                 }
                 wrhActiveCheck = false;
@@ -791,6 +865,7 @@ void loop() {
             dl.temp = getTemp();
             dl.rh = getRH();
             dlEEPROM.put(adrHead, dl);
+            Serial.print(">>>> DataLog:");     Serial.println(dlPointer);///////////
             dlPointer++;
             checkPointerDataLog();
         }
@@ -802,11 +877,36 @@ void loop() {
 
     //--Link Water Controller Program--/
     if (Serial.available() > 0){
-        String command = Serial.readString();
+        String command = Serial.readString();/*/
+        switch (command){
+            case LINK_GET_DATALOG:
+                LCD.clear();
+                LCD.print("Sending DataLog...");
+                link_sendDataLog();
+                LCD.clear();
+                LCD.print("Completed");
+                delay(3000);
+                break;
+            case LINK_GET_PROCESS:
+                LCD.clear();
+                LCD.print("Sending Process...");
+                link_sendDataLog();
+                LCD.clear();
+                LCD.print("Completed");
+                delay(3000);
+                break;
+        }/**/
         if (command == LINK_GET_DATALOG){
             LCD.clear();
             LCD.print("Sending DataLog...");
             link_sendDataLog();
+            LCD.clear();
+            LCD.print("Completed");
+            delay(3000);
+        } else if (command == LINK_GET_PROCESS){
+            LCD.clear();
+            LCD.print("Sending Process...");
+            link_sendProcess();
             LCD.clear();
             LCD.print("Completed");
             delay(3000);
@@ -2518,6 +2618,32 @@ void link_sendDataLog(){
     Serial.println("EOF");
 }
 
+void link_sendProcess(){
+    for (int i = 0; i < RP_MAX; i++){
+        //RecProcess rp;
+        int timeAddress =RP_START_ADR + (i * (PT_SIZE + PS_SIZE));
+        int statusAddress = timeAddress + PT_SIZE;
+        uint32_t timeStemp;
+        uint8_t status;
+        EEPROM.get(timeAddress, timeStemp);
+        EEPROM.get(statusAddress, status);
+        DateTime dt(timeStemp);
+        Serial.print(dt.day());
+        Serial.print("/");
+        Serial.print(dt.month());
+        Serial.print("/");
+        Serial.print(dt.year());
+        Serial.print(" ");
+        Serial.print(dt.hour());
+        Serial.print(":");
+        Serial.print(dt.minute());
+        Serial.print(",");
+        Serial.print(status);
+        Serial.println();
+    }
+    Serial.println("EOF");
+}
+
 ///////////////////////////////////////////////////////////////////////////////////
 //------------------------------BackLight FUNCTION-------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
@@ -2599,6 +2725,37 @@ void checkPointerDataLog(){
     if (dlPointer > DL_MAX){
         dlPointer = 0;
     }
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------------Record Process FUNCTION----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+/*/
+void getRPPointer(){
+    EEPROM.get(RP_PTR, rpPointer);
+    if (rpPointer > RP_MAX){
+        rpPointer = 0;
+        EEPROM.put(RP_PTR, (short)10);
+    }
+}/**/
+
+void rpStatusSave(int status){
+    uint16_t pointer = rpPointer;
+    int timeAddress = RP_START_ADR + (pointer * (PT_SIZE + PS_SIZE));
+    int statusAddress = timeAddress + PT_SIZE;
+    EEPROM.put(timeAddress, RTClib::now().unixtime());
+    EEPROM.put(statusAddress, status);
+    if (pointer < RP_MAX)
+        rpPointer++;
+    else
+        rpPointer = 0;
+
+    Serial.print("rpPionter:");     Serial.println(rpPointer);
+    Serial.print("TimeAddress:");   Serial.println(timeAddress);
+    Serial.print("Time:");          Serial.println(RTClib::now().unixtime());
+    Serial.print("StatusAddress:"); Serial.println(statusAddress);
+    Serial.print("Status:");        Serial.println(status);
+    Serial.println();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
