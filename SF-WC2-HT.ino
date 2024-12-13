@@ -1,8 +1,11 @@
 #include <Wire.h>
+#include <EEPROM.h>
 
 #include <LiquidCrystal_I2C.h>
 #include <DS3231.h>
 #include <EEPROM-Storage.h>
+#include <at24c32.h>
+#include <ArtronShop_SHT45.h>
 
 ///////////////////////////////////////////////////////////////////////////////////
 //-----------------------------------LCD Module----------------------------------//
@@ -71,6 +74,11 @@ bool h12hflag = false;
 bool pmflag = false;
 
 ///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------------SHT45 Module--------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+ArtronShop_SHT45 sht45(&Wire, 0x44);
+
+///////////////////////////////////////////////////////////////////////////////////
 //-------------------------------------Button------------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
@@ -114,10 +122,12 @@ int welcomeDelay = 1000;    //Time for show welcome message (second)
 //--------------------------------------------//
 
 //*********** Declear Display State ***********//
+
 //Main
 enum DISPLAY_STATE{
     DS_MAIN,
     DS_ADJUST_WT,
+    DS_DATALOG,
     DS_SETTING
 };
 
@@ -146,17 +156,33 @@ enum DISPLAY_SETTING{
 
 enum DISPLAY_ST_MENU{
     ST_MENU_TIME,
+    ST_MENU_MAIN_DISPLAY,
     ST_MENU_BACKLIGHT,
     ST_MENU_TIMEOUT_MENU,    //Include AdjustWaterTime
     ST_MENU_TIMEOUT_MANUAL_WT,
+    ST_MENU_RECORD_FREQUENCY,
     ST_MENU_RESET
 };
 //Define message for Setting Menu//
 #define DISP_ST_MENU_TIME "Time Setting"
+#define DISP_ST_MENU_MAIN_DISPLAY "Main Dispaly"
 #define DISP_ST_MENU_BACKLIGHT "BackLight Time"
 #define DISP_ST_MENU_TIMEOUT_MENU "Menu Timeout"
 #define DISP_ST_MENU_TIMEOUT_MANUAL_WT "Limit Manual"
+#define DISP_ST_MENU_RECORD_FREQUENCY "Record Time"
 #define DISP_ST_MENU_RESET "Reset"
+
+//Main Display
+enum DISPLAY_ST_MAIN_DISPLAY{
+    ST_MD_MAIN_MENU,
+    ST_MD_SUB_MENU
+};
+enum DISPLAY_ST_MD{
+    MD_STYLE,   //Main Diaplay Style
+    MD_CLASSIC, //Switch Display Time
+    MD_HT,      //Update HT Time
+    MD_DUAL     //Switch Display Time
+};
 
 //Setting Reset Menu
 enum DISPLAY_ST_RESET{
@@ -184,22 +210,95 @@ enum DISPLAY_BLINK{
 };
 
 //*********** Define Display State ***********//
+
 //Main
 enum DISPLAY_STATE dispStateCurrent = DS_MAIN;
+
 //AdjustWaterTime
 enum DISPLAY_ADJUST_WATER_TIME dispAdjustWTCurrent = WT_MAIN;
 enum DISPLAY_ADJ_WT_SETTING dispAdjWTSetingCurrent = WT_ST_MAIN;
 uint8_t dispAdjWTSettingSubIndex = WT_ST_SUB_EDIT;
 uint8_t dispAdjustWTIndex = 0;
+
 //Setting
 enum DISPLAY_SETTING dispSettingCurrent = ST_MAIN;
-enum DISPLAY_ST_MENU dispSTMenuCurrent = ST_MENU_TIME;
 int dispSTMenuIndex = 0;
+//Reset
 enum DISPLAY_ST_RESET dispSTResetCurrent = ST_RS_MAIN;
 int dispSTResetIndex = 0;       //DISPLAY_RS_SETTING
 
+//Main Display
+enum DISPLAY_ST_MAIN_DISPLAY dispMainDisplayCurrent = ST_MD_MAIN_MENU;
+int dispMainDisplayIndex = 0;
+
 //Blink
 enum DISPLAY_BLINK dispBlinkSelect = HOUR;
+
+///////////////////////////////////////////////////////////////////////////////////
+//---------------------------------Main Display---------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//******** Define count of Main Display ********//
+#define NUM_MAINDISPLAY_STYLE_OPTION 3
+
+//******** Define Default Main Display ********//
+#define MAINDISPLAY_STYLE_DEFAULT 2
+#define MAINDISPLAY_CLASSIC_SWITCH_DEFAULT 3
+#define MAINDISPLAY_HT_UPDATE_DEFAULT 3
+#define MAINDISPLAY_DUAL_SWITCH_DEFAULT 5
+
+///////////// Declear variables for Main Display (Common) /////////////
+enum DISPLAY_MAIN{
+    MN_CONTROLLER,
+    MN_HT
+};
+uint8_t mainDisplayIndex = MN_CONTROLLER;
+
+enum DISPLAY_MAIN_STATE{
+    MN_STT_CONTROLLER_ONLY,
+    MN_STT_HT_ONLY,
+    MN_STT_CONTROLLER_HT
+};
+uint8_t mainDisplayOptionStyle[3] = {
+    MN_STT_CONTROLLER_ONLY,
+    MN_STT_HT_ONLY,
+    MN_STT_CONTROLLER_HT
+};
+uint8_t mainDisplayStyle;
+int mainDisplayOptionStyleIndex = 0;
+
+uint8_t mainDisplayOptionTimeSetting;   //Temporary for Time Setting
+
+//******** Action variables ********//
+uint32_t mainDisplayAct;
+float mainDisplayTemp;
+float mainDisplayRH;
+
+///////////// Declear variables for Main Display (Classic) /////////////
+
+const uint8_t MAX_MD_CLASSIC = 10;
+
+enum DISPLAY_CLASSIC_HT{
+    TEMP_IN,
+    TEMP_OUT,
+    RH
+};
+uint8_t dispMeasurementIndex = TEMP_IN;
+uint8_t mainDisplayClassicSwitchTime;  //Sec
+
+///////////// Declear variables for Main Display (HT Only) /////////////
+
+const int8_t MAX_MD_HT = 10;
+
+uint8_t mainDisplayHTUpdateTime;  //Sec
+
+///////////// Declear variables for Main Display (Dual) /////////////
+
+const int8_t MAX_MD_DUAL = 10;
+
+uint8_t mainDisplayDualSwitchTime;    //Sec
+
+//-----------------------------------------------------------------//
 
 //*********** Declear variables for Adjust Water Time ***********//
 struct {
@@ -234,7 +333,7 @@ int blinkTime = 10;    //fine-june
 bool solenoid_state = false;
 
 ///////////////////////////////////////////////////////////////////////////////////
-//------------------------------------Water Time---------------------------------//
+//-------------------------------Water Time by Manual----------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
 //******** Define count of Water Time ********//
@@ -244,6 +343,27 @@ bool solenoid_state = false;
 int wtStartTime[WATER_TIME_NUM];    //Minute unit
 int wtPeriodTime[WATER_TIME_NUM];   //Second unit
 int onTimePeriod;                   //PeriodTime for Water now
+
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------Water Time by Temp & RH---------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//Define RH control **Feature: defind by user**
+uint8_t wrhLower = 80;
+uint8_t wrhHigher = 90;
+uint8_t wrhCheckFrequency = 1;  //Minute unit 1
+uint8_t wrhTime = 1;            //Minute unit 3
+uint8_t wrhDelayCheck = 1;    //Minute unit 5
+uint8_t wrhMaxRepeat = 10;      //10
+
+//Declear variables for operate
+bool wrhActive = false;
+bool wrhActiveCheck = false;
+float wrhRHPoint;
+uint32_t wrhCheckTime;
+uint32_t wrhOffTime;
+uint32_t wrhActiveCheckTime;
+uint8_t wrhRepeat = 0;
 
 ///////////////////////////////////////////////////////////////////////////////////
 //------------------------------------BackLight----------------------------------//
@@ -313,18 +433,83 @@ bool manualTimeoutState = false;
 uint32_t manualTimeOutAct;
 
 ///////////////////////////////////////////////////////////////////////////////////
-//--------------------------------------EEPROM-----------------------------------//
+//-------------------------Humidity and Temperature Record-----------------------//
+///////////////////////////////////////////////////////////////////////////////////
+// Pointer put to Internal
+// Data put to External
+#define EX_EEPROM_DATA 0x57
+
+//******** Define count of Record Frequency Option ********//
+#define NUM_RECORD_FREQUENCY 5
+
+//******** Define Default Factory value ********//
+#define RECORD_FREQUENCY_DEFAULT 15
+
+//******** Declear variables for EEPROM ********//
+uint8_t htRecordFrequencyOptionTime[NUM_RECORD_FREQUENCY] = {
+    1, 2, 5, 10, 15
+};
+int recordFrequencyOptionIndex = 0;
+
+//******** Declear variables for Record ********//
+struct DataLog{
+    uint32_t dateTime;
+    float temp;
+    float rh;
+};
+
+uint8_t htPeriodTime;      //Minute unit
+
+//******** Action variables ********//
+byte htMinuteAct;       //Get next minute
+
+///////////////////////////////////////////////////////////////////////////////////
+//---------------------------------DataLog Monitor-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+uint16_t dlmPointer = 0;
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------------------Record Process-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//Record Status Refer https://github.com/Shinodari/ShinoFarm-Water-Control-SF-WC2-HT/issues/10#issuecomment-2527870628
+enum RP_STATUS{
+    RP_WCM_START = 10,
+    RP_WCM_STOP = 11,
+    RP_WCT_START = 20,
+    RP_WCT_STOP = 21,
+    RP_WCR_START = 30,
+    RP_WCR_STOP = 31,
+    RP_WCR_LOW = 32,
+    RP_WCR_HIGH = 33,
+    RP_WCR_SUCCESS = 34,
+    RP_WCR_FAIL = 35
+};
+
+struct RecProcess{
+    uint32_t timeStemp;
+    int status;
+};
+
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------------------Internal EEPROM------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 //********** Define EEPROM Adress for Setting ************//
-//Setting allocate 128bit (8 Values for data 8bit + checksum 8bit)
+//Setting allocate 256bit (16 Values for data 8bit + checksum 8bit)
 #define V1_ADR 0
 #define V2_ADR V1_ADR + 1 + 1
 #define V3_ADR V2_ADR + 1 + 1
 #define V4_ADR V3_ADR + 1 + 1
+#define V5_ADR V4_ADR + 1 + 1
+#define V6_ADR V5_ADR + 1 + 1
+#define V7_ADR V6_ADR + 1 + 1
+#define V8_ADR V7_ADR + 1 + 1
 
 //********** Define EEPROM Adress for Water Time ************//
 //Water Time allocate 768bit for 16 Water Time
-#define S1_ADR 16
+#define S1_ADR 32
 #define S2_ADR S1_ADR + 2 + 1
 #define S3_ADR S2_ADR + 2 + 1
 #define S4_ADR S3_ADR + 2 + 1
@@ -341,7 +526,7 @@ uint32_t manualTimeOutAct;
 #define S15_ADR S14_ADR + 2 + 1
 #define S16_ADR S15_ADR + 2 + 1
 
-#define P1_ADR S1_ADR + 48
+#define P1_ADR S1_ADR + 64
 #define P2_ADR P1_ADR + 2 + 1
 #define P3_ADR P2_ADR + 2 + 1
 #define P4_ADR P3_ADR + 2 + 1
@@ -358,10 +543,31 @@ uint32_t manualTimeOutAct;
 #define P15_ADR P14_ADR + 2 + 1
 #define P16_ADR P15_ADR + 2 + 1
 
+//********** Define EEPROM Adress for Record Process ************//
+#define RP_START_ADR 156
+#define RP_MAX 150
+
+//Pointer
+#define RP_PTR 1021
+
+//Time Process
+#define PT_SIZE 4   //KB
+
+//Status Process
+#define PS_SIZE 1   //KB
+
+//********** Define EEPROM Adress for Pointer of DataLog ************//
+#define DL_PTR 1023
+
 //******* Define Variable of EEPROM for Setting ********//
 EEPROMStorage<uint8_t> eepSettingBackLight(V1_ADR, BACKLIGHT_DEFAULT);
 EEPROMStorage<uint8_t> eepSettingTOMenu(V2_ADR, MENU_TIMEOUT_DEFAULT);
 EEPROMStorage<uint8_t> eepSettingTOManualWT(V3_ADR, MANUAL_TIMEOUT_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingRecordFrequency(V4_ADR, RECORD_FREQUENCY_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingMainDisplayStyle(V5_ADR, MAINDISPLAY_STYLE_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingMainDisplayClassicSwitch(V6_ADR, MAINDISPLAY_CLASSIC_SWITCH_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingMainDisplayHTUpdate(V7_ADR, MAINDISPLAY_HT_UPDATE_DEFAULT);
+EEPROMStorage<uint8_t> eepSettingMainDisplayDualSwitch(V8_ADR, MAINDISPLAY_DUAL_SWITCH_DEFAULT);
 
 //******* Define Variable of EEPROM for Water Time ********//
 EEPROMStorage<uint16_t> eepStartWT1(S1_ADR, 0);
@@ -398,6 +604,31 @@ EEPROMStorage<uint16_t> eepPeriodWT14(P14_ADR, 0);
 EEPROMStorage<uint16_t> eepPeriodWT15(P15_ADR, 0);
 EEPROMStorage<uint16_t> eepPeriodWT16(P16_ADR, 0);
 
+//********** Define Variable of EEPROM for Pointer of DataLog ************//
+EEPROMStorage<uint16_t> dlPointer(DL_PTR, 0);    //Next position for record the data log
+
+//********** Define Variable of EEPROM for Pointer of Record Process ************//
+//uint16_t rpPointer;
+EEPROMStorage<uint16_t> rpPointer(RP_PTR, 0);
+
+///////////////////////////////////////////////////////////////////////////////////
+//-------------------------------External EEPROM(0x50)---------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+//********** Define EEPROM Adress for Setting ************//
+#define DL_ADR 0
+const uint16_t DL_MAX = 288;
+
+//******* Define Variable of External EEPROM for DataLog ********//
+AT24C32 dlEEPROM(EX_EEPROM_DATA);
+
+///////////////////////////////////////////////////////////////////////////////////
+//---------------------------Link External by Serial Port------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+const String LINK_GET_DATALOG = "getDatalog";
+const String LINK_GET_PROCESS = "getProcess";
+
 ///////////////////////////////////////////////////////////////////////////////////
 //**********************************Setep Process********************************//
 ///////////////////////////////////////////////////////////////////////////////////
@@ -415,6 +646,13 @@ void setup() {
     delay(welcomeDelay);
     LCD.clear();
 
+    /*/--SHT45--//
+    while (!sht45.begin()){
+        LCD.clear();
+        LCD.print("SHT45 not found!");
+        delay(1000);
+    }/**/
+
     //--Button--//
     for(int pin : buttons){
         pinMode(pin, INPUT_PULLUP);
@@ -429,6 +667,12 @@ void setup() {
     LCD.createChar(2, upSymbol);
     LCD.createChar(3, downSymbol);
 
+    //--Auto Water by RH Control--//
+    wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+    //Temp//-----------------
+        wrhCheckTime = 0;
+    //-----------------------*/
+
     //--Water Time(EEPROM)--//
     eepAllWaterTimeLoad();
     
@@ -440,6 +684,33 @@ void setup() {
 
     //--Menu TimeOut--//
     setMenuTimeOutAct();
+
+    //--Main Display--//
+    setMainDisplayAct();
+
+    //--Record Process--//
+    //getRPPointer();
+
+    //--DataLog--//
+    DataLog dl;
+    dlEEPROM.get((dlPointer - 1) * sizeof(struct DataLog), dl);
+    DateTime dt(dl.dateTime);
+    if ((dt.day() == RTC.getDate())
+      && (dt.month() == RTC.getMonth(century))
+      && (dt.year() == RTC.getYear() + 2000)
+      && (dt.hour() == RTC.getHour(h12hflag,pmflag))
+      && (dt.minute() == RTC.getMinute())){
+        if (dt.minute() < 60)
+            htMinuteAct = dt.minute() + 1;
+        else
+            htMinuteAct = 0;
+    } else {
+        htMinuteAct = RTC.getMinute();
+    }
+    checkPointerDataLog();
+
+    //--Serial Port--//
+    Serial.begin(9600);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -459,10 +730,81 @@ void loop() {
             }
         }
     }
-    if (solenoid_state && !manualTimeoutState){
+    if (solenoid_state && !manualTimeoutState && !wrhActive){
         if(((RTC.getHour(h12hflag,pmflag) * 60 * 60) + (RTC.getMinute() * 60) + RTC.getSecond()) >= onTimePeriod){
             solenoid_state = false;
             digitalWrite(SOLENOID_PIN, solenoid_state);
+        }
+    }
+
+    //--Auto Water by RH Control--//
+    if (!wrhActive){
+        if (millis() >= wrhCheckTime){
+            float rh = getRH();
+            /*/Temp//
+            Serial.print("Please enter the RH Lower : ");
+            while (Serial.available() == 0){
+                LCD.clear();
+                LCD.print("Please enter in Serial!");
+            }
+            rh = Serial.parseFloat();
+            Serial.println(rh);
+            ///////*/
+            if (rh <= wrhLower){
+                wrhActive = true;
+                wrhOffTime = millis() + (wrhTime * 60 * 1000L);
+                wrhRHPoint = rh;
+                //solenoid_state = true;
+                digitalWrite(SOLENOID_PIN, true);
+                /*Temp/Serial.println("Start..");/**/
+                rpStatusSave(RP_WCR_START);
+            } else {
+                wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+            }
+        }
+    } else {
+        if (!wrhActiveCheck){
+            if (millis() >= wrhOffTime){
+                wrhActiveCheck = true;
+                wrhActiveCheckTime = millis() + (wrhDelayCheck * 60 * 1000L);
+                //solenoid_state = false;
+                digitalWrite(SOLENOID_PIN, false);
+                /*Temp/Serial.println("Stop..");/**/
+                rpStatusSave(RP_WCR_STOP);
+            }
+        } else {
+            if (millis() >= wrhActiveCheckTime){
+                float rh = getRH();
+                /*/Temp//
+                Serial.print("Please enter the Visual RH : ");
+                while (Serial.available() == 0){
+                    LCD.clear();
+                    LCD.print("Please enter in Serial!");
+                }
+                rh = Serial.parseFloat();
+                Serial.println(rh);
+                ////////**/
+                if (rh > wrhRHPoint && rh >= wrhHigher){
+/*Ag Duplicate*/    wrhActive = false;
+                    wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+                    wrhRepeat = 0;
+                    rpStatusSave(RP_WCR_SUCCESS);
+                } else {
+                    if (wrhRepeat < wrhMaxRepeat){
+                        wrhOffTime = millis() + (wrhTime * 60 * 1000L);
+                        //solenoid_state = true;
+                        digitalWrite(SOLENOID_PIN, true);
+                        rpStatusSave(RP_WCR_START);
+                        wrhRepeat++;
+                    } else {
+/*Ag Duplicate*/        wrhActive = false;
+                        wrhCheckTime = millis() + (wrhCheckFrequency * 60 * 1000L);
+                        wrhRepeat = 0;
+                        rpStatusSave(RP_WCR_FAIL);
+                    }
+                }
+                wrhActiveCheck = false;
+            }
         }
     }
 
@@ -470,7 +812,7 @@ void loop() {
     switch (dispStateCurrent)
     {
     case DS_MAIN:
-        dispNormal();
+        dispMain();
         break;
     case DS_ADJUST_WT:
         switch (dispAdjustWTCurrent){
@@ -481,6 +823,9 @@ void loop() {
                 dispAdjustWTSetting();
                 break;
         }
+        break;
+    case DS_DATALOG:
+        dispDataLogMoniter();
         break;
     case DS_SETTING:
         dispSetting();
@@ -507,6 +852,65 @@ void loop() {
         manualTimeoutState = false;
         solenoid_state = false;
         digitalWrite(SOLENOID_PIN, solenoid_state);
+    }
+    
+    //----DataLog--//
+    byte cMinute = RTC.getMinute();
+    if (cMinute == htMinuteAct){
+        if (cMinute % htPeriodTime == 0){
+            DataLog dl;
+            int adrHead = (dlPointer * sizeof(struct DataLog));
+            DateTime dt = RTClib::now();
+            dl.dateTime = dt.unixtime();
+            dl.temp = getTemp();
+            dl.rh = getRH();
+            dlEEPROM.put(adrHead, dl);
+            Serial.print(">>>> DataLog:");     Serial.println(dlPointer);///////////
+            dlPointer++;
+            checkPointerDataLog();
+        }
+        if (cMinute + 1 < 60)
+            htMinuteAct = cMinute + 1;
+        else
+            htMinuteAct = 0;
+    }
+
+    //--Link Water Controller Program--/
+    if (Serial.available() > 0){
+        String command = Serial.readString();/*/
+        switch (command){
+            case LINK_GET_DATALOG:
+                LCD.clear();
+                LCD.print("Sending DataLog...");
+                link_sendDataLog();
+                LCD.clear();
+                LCD.print("Completed");
+                delay(3000);
+                break;
+            case LINK_GET_PROCESS:
+                LCD.clear();
+                LCD.print("Sending Process...");
+                link_sendDataLog();
+                LCD.clear();
+                LCD.print("Completed");
+                delay(3000);
+                break;
+        }/**/
+        if (command == LINK_GET_DATALOG){
+            LCD.clear();
+            LCD.print("Sending DataLog...");
+            link_sendDataLog();
+            LCD.clear();
+            LCD.print("Completed");
+            delay(3000);
+        } else if (command == LINK_GET_PROCESS){
+            LCD.clear();
+            LCD.print("Sending Process...");
+            link_sendProcess();
+            LCD.clear();
+            LCD.print("Completed");
+            delay(3000);
+        }
     }
 }
 
@@ -616,7 +1020,7 @@ void btSettingPress(){
             }
             break;
         case DS_SETTING:
-            switch (dispSTMenuCurrent){
+            switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     switch (dispBlinkSelect){
                         case DAY:
@@ -658,7 +1062,6 @@ void btSettingHold(){
             LCD.clear();
             dispStateCurrent = DS_SETTING;
             dispSettingCurrent = ST_MAIN;
-            dispSTMenuCurrent = ST_MENU_TIME;
             dispSTMenuIndex = 0;
             break;
     }
@@ -666,11 +1069,16 @@ void btSettingHold(){
 
 void btUpPress(){
     switch (dispStateCurrent){
+        case DS_MAIN:
+            LCD.clear();
+            dispStateCurrent = DS_DATALOG;
+            dlmPointer = 0;
+            getDLMPointer();
+            break;
         case DS_ADJUST_WT:
             switch (dispAdjustWTCurrent){
                 case WT_MAIN:
                     LCD.clear();   
-
                     if (dispAdjustWTIndex > 0)
                         dispAdjustWTIndex--;  
 
@@ -695,6 +1103,14 @@ void btUpPress(){
                     break;
             }
             break;
+        case DS_DATALOG:
+            if (dlmPointer < DL_MAX){
+                dlmPointer++;
+                LCD.clear();
+            } else {
+                dlmPointer = 0;
+            }
+            break;
         case DS_SETTING:
             switch (dispSettingCurrent){
                 case ST_MAIN:
@@ -704,9 +1120,44 @@ void btUpPress(){
                     }
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             adjustStTimeOrPeriodUp(1, 1);
+                            break;
+                        case ST_MENU_MAIN_DISPLAY:
+                            switch (dispMainDisplayCurrent){
+                                case ST_MD_MAIN_MENU:
+                                    if (dispMainDisplayIndex > 0){
+                                        dispMainDisplayIndex--;
+                                        LCD.clear();
+                                    }
+                                    break;
+                                case ST_MD_SUB_MENU:
+                                    if (dispMainDisplayIndex == MD_STYLE){
+                                        if (mainDisplayOptionStyleIndex > 0){
+                                            mainDisplayOptionStyleIndex--;
+                                            LCD.clear();
+                                        }
+                                    } else {
+                                        uint8_t maxTemp;
+                                        switch (dispMainDisplayIndex){
+                                            case MD_CLASSIC:
+                                                maxTemp = MAX_MD_CLASSIC;
+                                                break;
+                                            case MD_HT:
+                                                maxTemp = MAX_MD_HT;
+                                                break;
+                                            case MD_DUAL:
+                                                maxTemp = MAX_MD_DUAL;
+                                                break;
+                                        }
+                                        if (mainDisplayOptionTimeSetting < maxTemp){
+                                            mainDisplayOptionTimeSetting++;
+                                            LCD.clear();
+                                        }
+                                    }
+                                    break;
+                            }
                             break;
                         case ST_MENU_BACKLIGHT:
                             if (backLightOptionIndex < NUM_BACKLIGHT_OPTION - 1){
@@ -723,6 +1174,12 @@ void btUpPress(){
                         case ST_MENU_TIMEOUT_MANUAL_WT:
                             if (manualTimeoutOptinIndex < NUM_MANUAL_TIMOUT -1){
                                 manualTimeoutOptinIndex++;
+                                LCD.clear();
+                            }
+                            break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            if (recordFrequencyOptionIndex < NUM_RECORD_FREQUENCY -1){
+                                recordFrequencyOptionIndex++;
                                 LCD.clear();
                             }
                             break;
@@ -773,6 +1230,14 @@ void btDownPress(){
                     LCD.clear();
                     break;
             }
+        case DS_DATALOG:
+            if (dlmPointer > 0){
+                dlmPointer--;
+                LCD.clear();
+            } else {
+                dlmPointer = DL_MAX;
+            }
+            break;
         case DS_SETTING:
             switch (dispSettingCurrent){
                 case ST_MAIN:
@@ -782,9 +1247,32 @@ void btDownPress(){
                     }
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             adjustStTimeOrPeriodDown(1, 1);
+                            break;
+                        case ST_MENU_MAIN_DISPLAY:
+                            switch (dispMainDisplayCurrent){
+                                case ST_MD_MAIN_MENU:
+                                    if (dispMainDisplayIndex < MD_DUAL){
+                                        dispMainDisplayIndex++;
+                                        LCD.clear();
+                                    }
+                                    break;
+                                case ST_MD_SUB_MENU:
+                                    if (dispMainDisplayIndex == MD_STYLE){
+                                        if (mainDisplayOptionStyleIndex < MN_STT_CONTROLLER_HT){
+                                            mainDisplayOptionStyleIndex++;
+                                            LCD.clear();
+                                        }
+                                    } else {
+                                        if (mainDisplayOptionTimeSetting > 1){
+                                            mainDisplayOptionTimeSetting--;
+                                            LCD.clear();
+                                        }
+                                    break;
+                                    }
+                            }
                             break;
                         case ST_MENU_BACKLIGHT:
                             if (backLightOptionIndex > 0){
@@ -803,6 +1291,13 @@ void btDownPress(){
                                 manualTimeoutOptinIndex--;
                                 LCD.clear();
                             }
+                            break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            if (recordFrequencyOptionIndex > 0){
+                                recordFrequencyOptionIndex--;
+                                LCD.clear();
+                            }
+                            break;
                         case ST_MENU_RESET:
                             if (dispSTResetIndex < RS_DEFAULT && dispSTResetCurrent == ST_RS_MAIN){
                                 dispSTResetIndex++;
@@ -894,7 +1389,7 @@ void btEnterPress(){
             switch (dispSettingCurrent){
                 case ST_MAIN:                       //Before into each setting
                     dispSettingCurrent = ST_MENU;
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             StTime.day = RTC.getDate();
                             StTime.month = RTC.getMonth(century);
@@ -902,6 +1397,10 @@ void btEnterPress(){
                             StTime.hour = RTC.getHour(h12hflag,pmflag);
                             StTime.minute = RTC.getMinute();
                             dispBlinkSelect = YEAR;
+                            break;
+                        case ST_MENU_MAIN_DISPLAY:
+                            dispMainDisplayCurrent = ST_MD_MAIN_MENU;
+                            dispMainDisplayIndex = 0;                            
                             break;
                         case ST_MENU_BACKLIGHT:
                             backLightOptionIndex = findIndex(backLightOptionTime, backLightTime);
@@ -912,6 +1411,9 @@ void btEnterPress(){
                         case ST_MENU_TIMEOUT_MANUAL_WT:
                             manualTimeoutOptinIndex = findIndex(manualTimeoutOptionTime, manualTimeout);
                             break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            recordFrequencyOptionIndex = findIndex(htRecordFrequencyOptionTime, htPeriodTime);
+                            break;
                         case ST_MENU_RESET:
                             dispSTResetCurrent = ST_RS_MAIN;
                             dispSTResetIndex = 0;
@@ -919,7 +1421,7 @@ void btEnterPress(){
                     }
                     break;
                 case ST_MENU:                       //After into each setting
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
                         case ST_MENU_TIME:
                             RTC.setDate(StTime.day);
                             RTC.setMonth(StTime.month);
@@ -928,6 +1430,44 @@ void btEnterPress(){
                             RTC.setMinute(StTime.minute);
                             RTC.setSecond(0);
                             dispSettingCurrent = ST_MAIN;
+                            break;
+                        case ST_MENU_MAIN_DISPLAY:
+                            switch (dispMainDisplayCurrent){
+                                case ST_MD_MAIN_MENU:
+                                    dispMainDisplayCurrent = ST_MD_SUB_MENU;
+                                    switch (dispMainDisplayIndex){
+                                        case MD_STYLE:
+                                            mainDisplayOptionStyleIndex = findIndex(mainDisplayOptionStyle, mainDisplayStyle);
+                                            break;
+                                        case MD_CLASSIC:
+                                            mainDisplayOptionTimeSetting = mainDisplayClassicSwitchTime;
+                                            break;
+                                        case MD_HT:
+                                            mainDisplayOptionTimeSetting = mainDisplayHTUpdateTime;
+                                            break;
+                                        case MD_DUAL:
+                                            mainDisplayOptionTimeSetting = mainDisplayDualSwitchTime;
+                                            break;
+                                    }
+                                    break;
+                                case ST_MD_SUB_MENU:
+                                    switch (dispMainDisplayIndex){
+                                        case MD_STYLE:
+                                            eepMainDispalyStyleSave();
+                                            break;
+                                        case MD_CLASSIC:
+                                            eepMainDisplayClassicSave();
+                                            break;
+                                        case MD_HT:
+                                            eepMainDisplayHTSave();
+                                            break;
+                                        case MD_DUAL:
+                                            eepMainDisplayDualSave();
+                                            break;
+                                    }
+                                    dispMainDisplayCurrent = ST_MD_MAIN_MENU;
+                                    break;
+                            }
                             break;
                         case ST_MENU_BACKLIGHT:
                             eepBacklightSave();
@@ -939,6 +1479,10 @@ void btEnterPress(){
                             break;
                         case ST_MENU_TIMEOUT_MANUAL_WT:
                             eepManualWTTimeoutSave();
+                            dispSettingCurrent = ST_MAIN;
+                            break;
+                        case ST_MENU_RECORD_FREQUENCY:
+                            eepRecordFrequencySave();
                             dispSettingCurrent = ST_MAIN;
                             break;
                         case ST_MENU_RESET:
@@ -992,6 +1536,9 @@ void btBackPress(){
             }
             dispBlinkSelect = HOUR;
             break;
+        case DS_DATALOG:
+            dispStateCurrent = DS_MAIN;
+            break;
         case DS_SETTING:
             switch (dispSettingCurrent){
                 case ST_MAIN:
@@ -999,7 +1546,17 @@ void btBackPress(){
                     dispBlinkSelect = HOUR;
                     break;
                 case ST_MENU:
-                    switch (dispSTMenuCurrent){
+                    switch (dispSTMenuIndex){
+                        case ST_MENU_MAIN_DISPLAY:
+                            switch (dispMainDisplayCurrent){
+                                case ST_MD_MAIN_MENU:
+                                    dispSettingCurrent = ST_MAIN;
+                                    break;
+                                case ST_MD_SUB_MENU:
+                                    dispMainDisplayCurrent = ST_MD_MAIN_MENU;
+                                    break;
+                            }
+                            break;
                         case ST_MENU_RESET:
                             switch (dispSTResetCurrent){
                                 case ST_RS_MAIN:
@@ -1139,21 +1696,98 @@ void adjustStTimeOrPeriodDown(uint8_t stepMinute, uint8_t stepSecond){
 ///////////////////////////////////////////////////////////////////////////////////
 //---------------------------------Display FUNCTION------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
-void dispNormal(){    
+void dispMain(){
     LCD.home();
+    switch (mainDisplayStyle){
+        case MN_STT_CONTROLLER_ONLY:
+            if (millis() >= mainDisplayAct){
+                if (dispMeasurementIndex < RH)
+                    dispMeasurementIndex++;
+                else
+                    dispMeasurementIndex = 0;
+                setMainDisplayAct();
+                LCD.clear();
+            }
+            dispMainClassic();
+            break;
+        case MN_STT_HT_ONLY:
+            if (millis() >= mainDisplayAct){
+                setMainDisplayAct();
+            }
+            dispMainHT();
+            break;
+        case MN_STT_CONTROLLER_HT:
+            if (millis() >= mainDisplayAct){
+                if (mainDisplayIndex < MN_HT)
+                    mainDisplayIndex++;
+                else
+                    mainDisplayIndex = 0;
+                setMainDisplayAct();
+                LCD.clear();
+            }
+            switch (mainDisplayIndex){
+                case MN_CONTROLLER:
+                    dispMainClassic();
+                    break;
+                case MN_HT:
+                    dispMainHT();
+                    break;
+            }
+            break;
+    }
+}
 
+void dispMainClassic(){
+    LCD.home();
+    
     //Display Date
     printDate(RTC.getDate(), RTC.getMonth(century), RTC.getYear() , false);
     printSpace(2);
     //Display Time
     printAdjustHourMinute(RTC.getHour(h12hflag,pmflag), RTC.getMinute(), false);
 
-    //Display Temp in RTC Module
-    LCD.setCursor(2, 1);
-    LCD.print("Temp: ");
-    LCD.print(RTC.getTemperature());
+    //Display Measurement in Main Display
+    switch (dispMeasurementIndex){
+        case TEMP_IN:   //Display Temp in RTC Module
+            LCD.setCursor(0, 1);
+            LCD.print("Board:");
+            printSpace(2);
+            LCD.print(RTC.getTemperature());
+            LCD.print(char(0));
+            LCD.print("C");
+            break;
+        case TEMP_OUT:
+            LCD.setCursor(1, 1);
+            LCD.print("Temp:");
+            printSpace(2);
+            LCD.print(mainDisplayTemp);
+            LCD.print(char(0));
+            LCD.print("C");
+            break;
+        case RH:
+            LCD.setCursor(3, 1);
+            LCD.print("RH:");
+            printSpace(3);
+            LCD.print(mainDisplayRH);
+            LCD.print("%");
+            break;
+    }
+}
+
+void dispMainHT(){
+    LCD.print("Temp");
+    printSpace(5);
+    LCD.print(mainDisplayTemp);
     LCD.print(char(0));
     LCD.print("C");
+    
+    LCD.setCursor(0,1);
+
+    LCD.print("Humidity");
+    printSpace(1);
+    LCD.print(mainDisplayRH);
+    printSpace(1);
+    LCD.print("%");    
 }
 
 void dispAdjustWTMain(){
@@ -1260,27 +1894,30 @@ void dispSetting(){
             switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     LCD.print(DISP_ST_MENU_TIME);
-                    dispSTMenuCurrent = ST_MENU_TIME;
+                    printSpace(3);
+                    break;
+                case ST_MENU_MAIN_DISPLAY:
+                    LCD.print(DISP_ST_MENU_MAIN_DISPLAY);
                     printSpace(3);
                     break;
                 case ST_MENU_BACKLIGHT:
                     LCD.print(DISP_ST_MENU_BACKLIGHT);
-                    dispSTMenuCurrent = ST_MENU_BACKLIGHT;
                     printSpace(1);
                     break;
                 case ST_MENU_TIMEOUT_MENU:
                     LCD.print(DISP_ST_MENU_TIMEOUT_MENU);
-                    dispSTMenuCurrent = ST_MENU_TIMEOUT_MENU;
                     printSpace(1);
                     break;
                 case ST_MENU_TIMEOUT_MANUAL_WT:
                     LCD.print(DISP_ST_MENU_TIMEOUT_MANUAL_WT);
-                    dispSTMenuCurrent = ST_MENU_TIMEOUT_MANUAL_WT;
                     printSpace(3);
+                    break;
+                case ST_MENU_RECORD_FREQUENCY:
+                    LCD.print(DISP_ST_MENU_RECORD_FREQUENCY);
+                    printSpace(4);
                     break;
                 case ST_MENU_RESET:
                     LCD.print(DISP_ST_MENU_RESET);
-                    dispSTMenuCurrent = ST_MENU_RESET;
                     printSpace(10);
                     break;
             }
@@ -1294,9 +1931,12 @@ void dispSetting(){
 
             break;
         case ST_MENU:
-            switch (dispSTMenuCurrent){
+            switch (dispSTMenuIndex){
                 case ST_MENU_TIME:
                     dispTimeSetting();
+                    break;
+                case ST_MENU_MAIN_DISPLAY:
+                    dispMainDisplay();
                     break;
                 case ST_MENU_BACKLIGHT:
                     dispBackLightSetting();
@@ -1306,6 +1946,9 @@ void dispSetting(){
                     break;
                 case ST_MENU_TIMEOUT_MANUAL_WT:
                     dispManualTimeOutSetting();
+                    break;
+                case ST_MENU_RECORD_FREQUENCY:
+                    dispRecordFrequency();
                     break;
                 case ST_MENU_RESET:
                     dispResetSetting();
@@ -1326,6 +1969,83 @@ void dispTimeSetting(){
     printDate(StTime.day, StTime.month, StTime.year, true);
     printSpace(3);
     printAdjustHourMinute(StTime.hour, StTime.minute, true);
+}
+
+void dispMainDisplay(){
+    switch (dispMainDisplayCurrent){
+        case ST_MD_MAIN_MENU:
+            switch (dispMainDisplayIndex){
+                case MD_STYLE:
+                    LCD.print(DISP_ST_MENU_MAIN_DISPLAY);
+                    LCD.setCursor(0, 1);
+                    LCD.print("Style");
+                    printSpace(10);
+                    LCD.print(char(3));
+                    break;
+                case MD_CLASSIC:
+                    LCD.print("Classic Style");
+                    LCD.setCursor(0, 1);
+                    LCD.print("Change Time");
+                    printSpace(4);
+                    LCD.print(char(1));
+                    break;
+                case MD_HT:
+                    LCD.print("Temp & RH Style");
+                    LCD.setCursor(0, 1);
+                    LCD.print("Update Time");
+                    printSpace(4);
+                    LCD.print(char(1));
+                    break;
+                case MD_DUAL:
+                    LCD.print("Dual Style");
+                    LCD.setCursor(0, 1);
+                    LCD.print("Change Time");
+                    printSpace(4);
+                    LCD.print(char(2));
+                    break;
+            }
+            break;
+        case ST_MD_SUB_MENU:
+            switch (dispMainDisplayIndex){
+                case MD_STYLE:
+                    LCD.print("Style");
+                    LCD.setCursor(0, 1);
+                    switch (mainDisplayOptionStyleIndex){                        
+                        case MN_STT_CONTROLLER_ONLY:
+                            LCD.print("Classic Only");
+                            printSpace(3);
+                            LCD.print(char(3));
+                            break;
+                        case MN_STT_HT_ONLY:
+                            LCD.print("Temp & RH Only");
+                            printSpace(1);
+                            LCD.print(char(1));
+                            break;
+                        case MN_STT_CONTROLLER_HT:
+                            LCD.print("Dual Display");
+                            printSpace(3);
+                            LCD.print(char(2));
+                            break;
+                    }
+                    break;
+                case MD_CLASSIC:
+                    LCD.print("Change Time");
+                    LCD.setCursor(0, 1);
+                    printOptionTime(mainDisplayOptionTimeSetting, MAX_MD_CLASSIC, "s");
+                    break;
+                case MD_HT:
+                    LCD.print("Update Time");
+                    LCD.setCursor(0, 1);
+                    printOptionTime(mainDisplayOptionTimeSetting, MAX_MD_HT, "s");
+                    break;
+                case MD_DUAL:
+                    LCD.print("Change Time");
+                    LCD.setCursor(0, 1);
+                    printOptionTime(mainDisplayOptionTimeSetting, MAX_MD_DUAL, "s");
+                    break;
+            }
+            break;
+    }
 }
 
 void dispBackLightSetting(){
@@ -1376,6 +2096,12 @@ void dispResetSetting(){
     }
 }
 
+void dispRecordFrequency(){
+    LCD.print(DISP_ST_MENU_RECORD_FREQUENCY);
+    LCD.setCursor(0, 1);
+    printOptionTime(htRecordFrequencyOptionTime, recordFrequencyOptionIndex, NUM_RECORD_FREQUENCY, "m");
+}
+
 void dispReset(){
     LCD.home();
     LCD.print("Reset");
@@ -1391,6 +2117,34 @@ void dispReset(){
     LCD.print("?");
     blink();
     printSelectYesNo();
+}
+
+void dispDataLogMoniter(){
+    DataLog dl;
+    dlEEPROM.get(dlmPointer * sizeof(struct DataLog), dl);
+    DateTime dt(dl.dateTime);
+    //Line1
+    LCD.home();
+    LCD.print(dispFillCharFullDigit(dt.day(), '0', 2));
+    LCD.print("/");
+    LCD.print(dispFillCharFullDigit(dt.month(), '0', 2));
+    printSpace(1);
+    LCD.print(dispFillCharFullDigit(dt.hour(), '0', 2));
+    LCD.print(":");
+    LCD.print(dispFillCharFullDigit(dt.minute(), '0', 2));
+
+    printSpace(1);
+    LCD.print("#");
+    LCD.print(dispFillCharFullDigit(dlmPointer + 1, '0', 3));
+    //Line2
+    LCD.setCursor(0, 1);
+    LCD.print(dl.temp);
+    LCD.print(char(0));
+    LCD.print("C");
+
+    printSpace(3);
+    LCD.print(dl.rh);
+    LCD.print("%");
 }
 
 //************ Calculator blink time *************//
@@ -1526,6 +2280,18 @@ void printOptionTime(uint8_t optionTime[], int optionTimeIndex, uint8_t optionTi
     if (optionTimeIndex == 0)
         LCD.print(char(2));
     else if (optionTimeIndex >= optionTimeMax -1)
+        LCD.print(char(3));
+    else
+        LCD.print(char(1));
+}
+
+void printOptionTime(uint8_t time, uint8_t timeMax, String unit){
+    LCD.print(time);
+    LCD.print(unit);
+    fillSpaceForArrow(time, timeMax, 13);
+    if (time <= 1)
+        LCD.print(char(2));
+    else if (time >= timeMax)
         LCD.print(char(3));
     else
         LCD.print(char(1));
@@ -1668,6 +2434,11 @@ void eepAllSettingLoad(){
     backLightTime = eepSettingBackLight;
     menuTimeout = eepSettingTOMenu;
     manualTimeout = eepSettingTOManualWT;
+    htPeriodTime = eepSettingRecordFrequency;
+    mainDisplayStyle = eepSettingMainDisplayStyle;
+    mainDisplayClassicSwitchTime = eepSettingMainDisplayClassicSwitch;
+    mainDisplayHTUpdateTime = eepSettingMainDisplayHTUpdate;
+    mainDisplayDualSwitchTime = eepSettingMainDisplayDualSwitch; //NoSure
 }
 
 void eepBacklightSave(){
@@ -1690,6 +2461,33 @@ void eepManualWTTimeoutSave(){
     uint8_t manualWTT = manualTimeoutOptionTime[manualTimeoutOptinIndex];
     manualTimeout = manualWTT;
     eepSettingTOManualWT = manualWTT;
+}
+
+void eepRecordFrequencySave(){
+    uint8_t htRecordFrequencyT = htRecordFrequencyOptionTime[recordFrequencyOptionIndex];
+    htPeriodTime = htRecordFrequencyT;
+    eepSettingRecordFrequency = htRecordFrequencyT;
+}
+
+void eepMainDispalyStyleSave(){
+    uint8_t mainDisplayStyleT = mainDisplayOptionStyle[mainDisplayOptionStyleIndex];
+    mainDisplayStyle = mainDisplayStyleT;
+    eepSettingMainDisplayStyle = mainDisplayStyleT;
+}
+
+void eepMainDisplayClassicSave(){
+    mainDisplayClassicSwitchTime = mainDisplayOptionTimeSetting;
+    eepSettingMainDisplayClassicSwitch = mainDisplayOptionTimeSetting;
+}
+
+void eepMainDisplayHTSave(){
+    mainDisplayHTUpdateTime = mainDisplayOptionTimeSetting;
+    eepSettingMainDisplayHTUpdate = mainDisplayOptionTimeSetting;
+}
+
+void eepMainDisplayDualSave(){
+    mainDisplayDualSwitchTime = mainDisplayOptionTimeSetting;
+    eepSettingMainDisplayDualSwitch = mainDisplayOptionTimeSetting;
 }
 
 void eepWaterTimeReset(){
@@ -1734,14 +2532,30 @@ void eepDefaultReset(){
     uint8_t backLightT = BACKLIGHT_DEFAULT;
     uint8_t menuTimeoutT = MENU_TIMEOUT_DEFAULT;
     uint8_t timeOutWT = MANUAL_TIMEOUT_DEFAULT;
+    uint8_t htPeriodTimeT = RECORD_FREQUENCY_DEFAULT;
+    uint8_t mainDisplayStyleT = MAINDISPLAY_STYLE_DEFAULT;
+    uint8_t mainDisplayClassicSwitchTimeT = MAINDISPLAY_CLASSIC_SWITCH_DEFAULT;
+    uint8_t mainDisplayUpdateHTTimeT = MAINDISPLAY_HT_UPDATE_DEFAULT;
+    uint8_t mainDisplaySwitchTimeT = MAINDISPLAY_DUAL_SWITCH_DEFAULT;
 
     eepSettingBackLight = backLightT;
     eepSettingTOMenu = menuTimeoutT;
     eepSettingTOManualWT = timeOutWT;
+    eepSettingRecordFrequency = htPeriodTimeT;
+    eepSettingMainDisplayStyle = mainDisplayStyleT;
+    eepSettingMainDisplayClassicSwitch = mainDisplayClassicSwitchTimeT;
+    eepSettingMainDisplayHTUpdate = mainDisplayUpdateHTTimeT;
+    eepSettingMainDisplayDualSwitch = mainDisplaySwitchTimeT;
+
 
     backLightTime = backLightT;
     menuTimeout = menuTimeoutT;
     manualTimeout = timeOutWT;
+    htPeriodTime = htPeriodTimeT;
+    mainDisplayStyle = mainDisplayStyleT;
+    mainDisplayClassicSwitchTime = mainDisplayClassicSwitchTimeT;
+    mainDisplayHTUpdateTime = mainDisplayUpdateHTTimeT;
+    mainDisplayDualSwitchTime = mainDisplaySwitchTimeT;
 }
 
 //** romove deactive operate time between active operate for time Water Time **//
@@ -1778,6 +2592,59 @@ void spWTSort(){
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
+//----------------------------Link External FUNCTION-----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+void link_sendDataLog(){
+    for(int i = 0; i < DL_MAX; i++){
+        DataLog dl;
+        dlEEPROM.get(i * sizeof(struct DataLog), dl);
+        DateTime dt(dl.dateTime);
+        Serial.print(dt.day());
+        Serial.print("/");
+        Serial.print(dt.month());
+        Serial.print("/");
+        Serial.print(dt.year());
+        Serial.print(" ");
+        Serial.print(dt.hour());
+        Serial.print(":");
+        Serial.print(dt.minute());
+        Serial.print(",");
+        Serial.print(dl.temp);
+        Serial.print(",");
+        Serial.print(dl.rh);
+        Serial.println();
+    }
+    Serial.println("EOF");
+}
+
+void link_sendProcess(){
+    for (int i = 0; i < RP_MAX; i++){
+        //RecProcess rp;
+        int timeAddress =RP_START_ADR + (i * (PT_SIZE + PS_SIZE));
+        int statusAddress = timeAddress + PT_SIZE;
+        uint32_t timeStemp;
+        uint8_t status;
+        EEPROM.get(timeAddress, timeStemp);
+        EEPROM.get(statusAddress, status);
+        DateTime dt(timeStemp);
+        Serial.print(dt.day());
+        Serial.print("/");
+        Serial.print(dt.month());
+        Serial.print("/");
+        Serial.print(dt.year());
+        Serial.print(" ");
+        Serial.print(dt.hour());
+        Serial.print(":");
+        Serial.print(dt.minute());
+        Serial.print(",");
+        Serial.print(status);
+        Serial.println();
+    }
+    Serial.println("EOF");
+}
+
+///////////////////////////////////////////////////////////////////////////////////
 //------------------------------BackLight FUNCTION-------------------------------//
 ///////////////////////////////////////////////////////////////////////////////////
 
@@ -1799,6 +2666,96 @@ void setMenuTimeOutAct(){
 
 void setManualTimeoutAct(){
     manualTimeOutAct = millis() + (manualTimeout * 1000L * 60L);
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//--------------------------------SHT45 FUNCTION---------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+float getTemp(){
+    if (sht45.measure()){
+        return sht45.temperature();
+    }
+}
+
+float getRH(){
+    if (sht45.measure()){
+        return sht45.humidity();
+    }
+}
+///////////////////////////////////////////////////////////////////////////////////
+//-----------------------------Main Display FUNCTION-----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+void setMainDisplayAct(){
+    switch (mainDisplayStyle){
+        case MN_STT_CONTROLLER_ONLY:
+            mainDisplayAct = millis() + (mainDisplayClassicSwitchTime * 1000L);
+            break;
+        case MN_STT_HT_ONLY:
+            mainDisplayAct = millis() + (mainDisplayHTUpdateTime * 1000L);
+            break;
+        case MN_STT_CONTROLLER_HT:
+            mainDisplayAct = millis() + (mainDisplayDualSwitchTime * 1000L);
+            break;
+    }    
+    mainDisplayTemp = getTemp();
+    mainDisplayRH = getRH();
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//--------------------------------DataLog FUNCTION-------------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+
+// For DataLog Monitor
+void getDLMPointer(){
+    LCD.print("Please wait..");
+    unsigned long maxTimeStamp;
+    for(int i = 0; i < DL_MAX; i++){
+        DataLog dl;
+        dlEEPROM.get(i * sizeof(struct DataLog), dl);
+        DateTime dt(dl.dateTime);
+        if (dt.unixtime() > maxTimeStamp){
+            maxTimeStamp = dt.unixtime();
+            dlmPointer = i;
+        }
+    }
+}
+
+void checkPointerDataLog(){
+    if (dlPointer > DL_MAX){
+        dlPointer = 0;
+    }
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+//----------------------------Record Process FUNCTION----------------------------//
+///////////////////////////////////////////////////////////////////////////////////
+/*/
+void getRPPointer(){
+    EEPROM.get(RP_PTR, rpPointer);
+    if (rpPointer > RP_MAX){
+        rpPointer = 0;
+        EEPROM.put(RP_PTR, (short)10);
+    }
+}/**/
+
+void rpStatusSave(int status){
+    uint16_t pointer = rpPointer;
+    int timeAddress = RP_START_ADR + (pointer * (PT_SIZE + PS_SIZE));
+    int statusAddress = timeAddress + PT_SIZE;
+    EEPROM.put(timeAddress, RTClib::now().unixtime());
+    EEPROM.put(statusAddress, status);
+    if (pointer < RP_MAX)
+        rpPointer++;
+    else
+        rpPointer = 0;
+
+    Serial.print("rpPionter:");     Serial.println(rpPointer);
+    Serial.print("TimeAddress:");   Serial.println(timeAddress);
+    Serial.print("Time:");          Serial.println(RTClib::now().unixtime());
+    Serial.print("StatusAddress:"); Serial.println(statusAddress);
+    Serial.print("Status:");        Serial.println(status);
+    Serial.println();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
